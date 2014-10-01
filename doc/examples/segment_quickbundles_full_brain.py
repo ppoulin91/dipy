@@ -22,17 +22,6 @@ from dipy.viz import fvtk
 from time import time
 
 
-class ArcLength(Metric):
-    def infer_features_shape(self, streamline):
-        return (1, 1)
-
-    def extract_features(self, streamline):
-        length_ = length(streamline).astype('f4')
-        return np.array([[length_]])
-
-    def dist(self, features1, features2):
-        return np.abs(features1 - features2)[0, 0]
-
 
 class Orientation(Metric):
     def infer_features_shape(self, streamline):
@@ -82,18 +71,18 @@ class MDFpy(Metric):
         return d / N
 
 
-# To become a test
+# # To become a test
 
-s1 = np.array([[0,0,0], [1, 1, 0.]])
-s1 = set_number_of_points(s1, 12)
+# s1 = np.array([[0,0,0], [1, 1, 0.]])
+# s1 = set_number_of_points(s1, 12)
 
-s2 = np.array([[0,0,0], [1, -1.2, 0.]])
-s2 = set_number_of_points(s2, 12)
+# s2 = np.array([[0,0,0], [1, -1.2, 0.]])
+# s2 = set_number_of_points(s2, 12)
 
-o = Orientation()
-print(o.extract_features(s1))
-print(o.extract_features(s2))
-print(o.dist(o.extract_features(s1), o.extract_features(s2)))
+# o = Orientation()
+# print(o.extract_features(s1))
+# print(o.extract_features(s2))
+# print(o.dist(o.extract_features(s1), o.extract_features(s2)))
 
 
 dname = '/home/eleftherios/Data/fancy_data/2013_02_26_Patrick_Delattre/'
@@ -106,7 +95,7 @@ Load full brain streamlines.
 streams, hdr = tv.read(fname)
 
 streamlines = [i[0] for i in streams]
-streamlines = streamlines[:200]
+streamlines = streamlines[:20000]
 
 for s in streamlines:
     s.setflags(write=True)
@@ -148,7 +137,7 @@ cluster_map3 = qb3.cluster(rstreamlines)
 
 # t4 = time()
 # print(t4 - t3)
-
+print(time() - t0)
 
 
 """
@@ -181,7 +170,7 @@ Show the centroids of the fornix after clustering (with random colors):
 # for c in cs:
 #     centroids.append(c.reshape(pts, 3))
 
-clusters = cluster_map4.clusters
+clusters = cluster_map3.clusters
 
 colormap = np.random.rand(len(clusters), 3)
 
@@ -225,10 +214,9 @@ fvtk.record(ren, n_frames=1, out_path='full_brain_clust.png', size=(600, 600))
 It is also possible to save the complete QuickBundles object with pickling.
 """
 
-save_pickle('QB.pkl', qb)
+#save_pickle('QB.pkl', qb)
 
 """
-Finally, here is a video of QuickBundles applied on a larger dataset.
 
 .. include:: ../links_names.inc
 
