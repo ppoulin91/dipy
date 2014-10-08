@@ -85,22 +85,45 @@ class MDFpy(Metric):
 # print(o.dist(o.extract_features(s1), o.extract_features(s2)))
 
 
-dname = '/home/eleftherios/Data/fancy_data/2013_02_26_Patrick_Delattre/'
-fname =  dname + 'streamlines_500K.trk'
+# dname = '/home/eleftherios/Data/fancy_data/2013_02_26_Patrick_Delattre/'
+# fname =  dname + 'streamlines_500K.trk'
 
-"""
-Load full brain streamlines.
-"""
+# """
+# Load full brain streamlines.
+# """
 
-streams, hdr = tv.read(fname)
+# streams, hdr = tv.read(fname)
+# streamlines = [i[0] for i in streams]
+dname = '/home/eleftherios/bundle_paper/data/faisceaux/'
 
-streamlines = [i[0] for i in streams]
-streamlines = streamlines[:20000]
+bundle_names = ['CC_front', 'CC_middle', 'CC_back', \
+                'cingulum_left', 'cingulum_right', \
+                'CST_left', 'CST_right', \
+                'IFO_left', 'IFO_right', \
+                'ILF_left', 'ILF_right',
+                'SCP_left', 'SCP_right', \
+                'SLF_left', 'SLF_right', \
+                'uncinate_left', 'uncinate_right']
+streamlines = []
+
+def load_all(streamlines):
+    for name in bundle_names:
+        fname = dname + name + '.trk'
+        streams, hdr = tv.read(fname)
+        S = [s[0] for s in streams]
+        streamlines += S
+    return streamlines
+
+streamlines = load_all(streamlines)
+
+
 
 for s in streamlines:
     s.setflags(write=True)
 
-pts = 20
+#streamlines = [s for s in streamlines if length(s) > 20]
+
+pts = 12
 
 rstreamlines = set_number_of_points(streamlines, pts)
 
@@ -124,7 +147,7 @@ t0 = time()
 # t2 = time()
 # print(t2 - t1)
 
-qb3 = QuickBundles(threshold=20.)
+qb3 = QuickBundles(threshold=35.)
 
 cluster_map3 = qb3.cluster(rstreamlines)
 
@@ -138,6 +161,9 @@ cluster_map3 = qb3.cluster(rstreamlines)
 # t4 = time()
 # print(t4 - t3)
 print(time() - t0)
+
+# res = np.array(map(len, cluster_map3))
+# clusters_big = np.array(cluster_map3[:])[res>40]
 
 
 """
@@ -172,17 +198,19 @@ Show the centroids of the fornix after clustering (with random colors):
 
 clusters = cluster_map3.clusters
 
+print(len(clusters))
+
+centroids = cluster_map3.centroids
+
 colormap = np.random.rand(len(clusters), 3)
 
 
-# fvtk.clear(ren)
-# ren.SetBackground(1, 1, 1)
-# #fvtk.add(ren, fvtk.line(streamlines, fvtk.colors.red, opacity=0.05))
-# fvtk.add(ren, fvtk.line(centroids, colormap, linewidth=3.))
-# fvtk.show(ren)
-# fvtk.record(ren, n_frames=1, out_path='full_brain_centroids.png', size=(600, 600))
-
-# 1/0
+fvtk.clear(ren)
+ren.SetBackground(1, 1, 1)
+#fvtk.add(ren, fvtk.line(streamlines, fvtk.colors.red, opacity=0.05))
+fvtk.add(ren, fvtk.line(centroids, colormap, linewidth=3.))
+fvtk.show(ren)
+fvtk.record(ren, n_frames=1, out_path='full_brain_centroids.png', size=(600, 600))
 
 """
 .. figure:: full_brain_centroids.png
@@ -201,7 +229,7 @@ for i, cluster in enumerate(clusters):
 
 fvtk.clear(ren)
 ren.SetBackground(1, 1, 1)
-fvtk.add(ren, fvtk.streamtube(streamlines, colormap_full))
+fvtk.add(ren, fvtk.line(streamlines, colormap_full))
 fvtk.show(ren)
 fvtk.record(ren, n_frames=1, out_path='full_brain_clust.png', size=(600, 600))
 
