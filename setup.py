@@ -77,6 +77,7 @@ from setup_helpers import install_scripts_bat, add_flag_checking
 
 # Define extensions
 EXTS = []
+
 for modulename, other_sources, language in (
     ('dipy.reconst.recspeed', [], 'c'),
     ('dipy.reconst.vec_val_sum', [], 'c'),
@@ -94,8 +95,9 @@ for modulename, other_sources, language in (
     ('dipy.align.vector_fields', [], 'c'),
     ('dipy.align.sumsqdiff', [], 'c'),
     ('dipy.align.expectmax', [], 'c'),
-    ('dipy.align.crosscorr', [], 'c')
-    ):
+    ('dipy.align.crosscorr', [], 'c'),
+    ('dipy.align.bundlemin', [], 'c')):
+
     pyx_src = pjoin(*modulename.split('.')) + '.pyx'
     EXTS.append(Extension(modulename, [pyx_src] + other_sources,
                           language=language,
@@ -122,7 +124,7 @@ else: # We have nibabel
     # up pyx and c files.
     build_ext = cyproc_exts(EXTS, CYTHON_MIN_VERSION, 'pyx-stamps')
     # Add openmp flags if they work
-    extbuilder = add_flag_checking(build_ext, ['-fopenmp'])
+    extbuilder = add_flag_checking(build_ext, [('-fopenmp', 'HAVE_OPENMP')])
 
 # Installer that checks for install-time dependencies
 class installer(install.install):
@@ -189,6 +191,7 @@ def main(**extra_args):
                           'dipy.sims.tests',
                           'dipy.denoise',
                           'dipy.denoise.tests'],
+
           ext_modules = EXTS,
           # The package_data spec has no effect for me (on python 2.6) -- even
           # changing to data_files doesn't get this stuff included in the source

@@ -2,12 +2,14 @@ from __future__ import print_function
 
 import numpy as np
 
-from nose.tools import assert_true, assert_equal
-from numpy.testing import (assert_array_equal,
-                           assert_array_almost_equal,
-                           assert_raises)
+from nose.tools import assert_true, assert_equal, assert_almost_equal
+from numpy.testing import (assert_array_equal, assert_array_almost_equal,
+                           assert_raises, run_module_suite)
 
 import dipy.tracking.streamline as dpstreamline
+from dipy.tracking.streamline import (relist_streamlines, unlist_streamlines,
+                                      center_streamlines, transform_streamlines,
+                                      select_random_set_of_streamlines)
 
 
 # Define an actual streamline
@@ -348,3 +350,60 @@ def test_length():
 
     expected = [length_python(s) for s in lines_readonly]
     assert_array_equal(dpstreamline.length(lines_readonly), expected)
+
+
+def test_unlist_relist_streamlines():
+    streamlines = [np.random.rand(10, 3),
+                   np.random.rand(20, 3),
+                   np.random.rand(5, 3)]
+
+    points, offsets = unlist_streamlines(streamlines)
+
+    assert_equal(offsets.dtype, np.dtype('i8'))
+
+    assert_equal(points.shape, (35, 3))
+    assert_equal(len(offsets), len(streamlines))
+
+    streamlines2 = relist_streamlines(points, offsets)
+
+    assert_equal(len(streamlines), len(streamlines2))
+
+    for i in range(len(streamlines)):
+        assert_array_equal(streamlines[i], streamlines2[i])
+
+
+def test_center_and_transform():
+    A = np.array([[1, 2, 3], [1, 2, 3.]])
+    streamlines = [A for i in range(10)]
+
+    streamlines2, center = center_streamlines(streamlines)
+
+    B = np.zeros((2, 3))
+    assert_array_equal(streamlines2[0], B)
+    assert_array_equal(center, A[0])
+
+    affine = np.eye(4)
+    affine[0, 0] = 2
+    affine[:3, -1] = - np.array([2, 1, 1]) * center
+
+    streamlines3 = transform_streamlines(streamlines, affine)
+    assert_array_equal(streamlines3[0], B)
+
+
+def test_select_streamlines():
+    streamlines = [np.random.rand(10, 3),
+                   np.random.rand(20, 3),
+                   np.random.rand(5, 3)]
+
+    new_streamlines = select_random_set_of_streamlines(streamlines, 2)
+
+    assert_equal(len(new_streamlines), 2)
+
+    new_streamlines = select_random_set_of_streamlines(streamlines, 4)
+
+    assert_equal(len(new_streamlines), 3)
+
+
+
+if __name__ == '__main__':
+    run_module_suite()
