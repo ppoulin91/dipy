@@ -13,13 +13,59 @@ import numpy as np
 from nibabel import trackvis as tv
 from dipy.tracking.streamline import length, set_number_of_points, center_streamlines
 from dipy.segment.clustering import QuickBundles
-from dipy.segment.metric import Metric, MidpointFeature
+from dipy.segment.metric import Metric, Feature
 from dipy.segment.metricspeed import ArcLengthMetric
 from dipy.io.pickles import save_pickle
 from dipy.viz import fvtk
 from dipy.viz.colormap import line_colors
 from time import time
 
+
+class EndpointsXFeature(Feature):
+
+    def infer_shape(self, streamline):
+        return (1, 1)
+
+    def extract(self, streamline):
+        x1 = streamline[0, 0]
+        x2 = streamline[-1, 0]
+
+        if x1 < 0 and x2 < 0:
+            return np.array([[-1]])
+
+        if x1 > 0 and x2 > 0:
+            return np.array([[1]])
+
+        return np.array([[0]])
+
+
+class LeftRightMiddleMetric(Metric):
+
+    def __init__(self):
+        super(LeftRightMiddleMetric, self).__init__(EndpointsXFeature())
+
+    def dist(self, feature1, feature2):
+
+        return 1 - np.float32(feature1 == feature2)
+
+
+def identify_left_right_middle(streamlines, cluster_map):
+    feature = EndpointsXFeature()
+
+    left_streamlines = []
+    right_streamlines = []
+    middle_streamlines = []
+
+    for cluster in cluster_map:
+        side = feature.extract(streamlines[cluster[0]])[0, 0]
+        if side == 0:
+            middle_streamlines.extend([streamlines[i] for i in cluster.indices])
+        elif side == 1:
+            right_streamlines.extend([streamlines[i] for i in cluster.indices])
+        else:
+            left_streamlines.extend([streamlines[i] for i in cluster.indices])
+
+    return left_streamlines, right_streamlines, middle_streamlines
 
 
 def show_streamlines(streamlines):
@@ -66,12 +112,22 @@ def show_clusters(streamlines, clusters, colormap):
                 size=(600, 600))
 
 
-def remove_clusters(cluster_map, size):
+def remove_clusters(cluster_map, size=None, alpha=1):
 
     indices =[]
+    szs = np.array(map(len, cluster_map))
+    mean_sz = szs.mean()
+    std_sz = szs.std()
+
     for cluster in cluster_map:
-        if len(cluster) >= size:
-            indices += cluster.indices.tolist()
+        if size is None:
+            if len(cluster) >= mean_sz - alpha * std_sz:
+                indices += cluster.indices.tolist()
+        else:
+            if len(cluster) >= size:
+                indices += cluster.indices.tolist()
+
+
     return indices
 
 
@@ -82,7 +138,6 @@ def remove_clusters_by_length(cluster_map, length_range = (50, 300)):
         if cluster.centroid >= length_range[0] and cluster.centroid <= length_range[1]:
             indices += cluster.indices.tolist()
     return indices
-
 
 
 def streamlines_from_indices(streamlines, indices):
@@ -128,17 +183,28 @@ streamlines = streamlines_from_indices(rstreamlines, indices)
 L-R-M
 """
 
-class MidpointXFeature(MidpointFeature):
+qb = QuickBundles(metric=LeftRightMiddleMetric(), threshold=0.5)
 
+t0 = time()
 
-class LeftRightMiddleMetric(Metric):
+cluster_map = qb.cluster(streamlines)
 
-    pass
+print('Duration %f sec' % (time()-t0, ))
+
+print(len(cluster_map))
+
+colormap = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1.]])
+
+show_clusters(streamlines, cluster_map.clusters, colormap)
+
+L, R, M = identify_left_right_middle(streamlines, cluster_map)
 
 
 """
 MDF
 """
+
+streamlines = L
 
 qb = QuickBundles(threshold=20.)
 
@@ -160,6 +226,12 @@ show_centroids(centroids, colormap , clusters)
 
 #show_centroids(centroids, colormap, clusters)
 show_clusters(streamlines, clusters, colormap)
+
+
+indices = remove_clusters(cluster_map, alpha=-1)
+streamlines = streamlines_from_indices(streamlines, indices)
+show_streamlines(streamlines)
+
 
 
 """
