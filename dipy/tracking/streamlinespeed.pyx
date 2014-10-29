@@ -117,12 +117,14 @@ def length(streamlines):
             streamline = streamlines[i] if streamlines[i].flags.writeable else streamlines[i].astype(dtype)
             streamlines_length[i] = _length[double2d](streamline)
     elif dtype == np.int64 or dtype == np.uint64:
-        # All streamlines are composed of int64 or uint64 points so convert them in float64 one at the time
+        # All streamlines are composed of int64 or uint64 points so convert them
+        #  in float64 one at the time
         for i in range(len(streamlines)):
             streamline = streamlines[i].astype(np.float64)
             streamlines_length[i] = _length[double2d](streamline)
     else:
-        # All streamlines are composed of points with a dtype fitting in 32bits so convert them in float32 one at the time
+        # All streamlines are composed of points with a dtype fitting in 32bits
+        #  so convert them in float32 one at the time
         for i in range(len(streamlines)):
             streamline = streamlines[i].astype(np.float32)
             streamlines_length[i] = _length[float2d](streamline)
@@ -290,14 +292,16 @@ def set_number_of_points(streamlines, nb_points=3):
             _set_number_of_points[double2d](streamline, modified_streamline)
             modified_streamlines.append(modified_streamline)
     elif dtype == np.int64 or dtype == np.uint64:
-        # All streamlines are composed of int64 or uint64 points so convert them in float64 one at the time
+        # All streamlines are composed of int64 or uint64 points so convert
+        #  them in float64 one at the time
         for i in range(len(streamlines)):
             streamline = streamlines[i].astype(np.float64)
             modified_streamline = np.empty((nb_points, streamline.shape[1]), dtype=streamline.dtype)
             _set_number_of_points[double2d](streamline, modified_streamline)
             modified_streamlines.append(modified_streamline)
     else:
-        # All streamlines are composed of points with a dtype fitting in 32bits so convert them in float32 one at the time
+        # All streamlines are composed of points with a dtype fitting in 32bits
+        #  so convert them in float32 one at the time
         for i in range(len(streamlines)):
             streamline = streamlines[i].astype(np.float32)
             modified_streamline = np.empty((nb_points, streamline.shape[1]), dtype=streamline.dtype)
