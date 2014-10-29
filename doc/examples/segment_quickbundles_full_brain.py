@@ -11,225 +11,285 @@ First import the necessary modules.
 
 import numpy as np
 from nibabel import trackvis as tv
-from dipy.tracking import metrics as tm
-from dipy.tracking.streamline import length, set_number_of_points
+from dipy.tracking.streamline import set_number_of_points, center_streamlines
 from dipy.segment.clustering import QuickBundles
-from dipy.segment.metric import Metric, dist
-from dipy.segment.metricspeed import ArcLength as ArcLengthFast
+from dipy.segment.metric import Metric, Feature
+from dipy.segment.metricspeed import ArcLengthMetric
 from dipy.io.pickles import save_pickle
-from dipy.data import get_data
 from dipy.viz import fvtk
+from dipy.viz.colormap import line_colors
 from time import time
 
 
-class ArcLength(Metric):
-    def infer_features_shape(self, streamline):
+class EndpointsXFeature(Feature):
+
+    def infer_shape(self, streamline):
         return (1, 1)
 
-    def extract_features(self, streamline):
-        length_ = length(streamline).astype('f4')
-        return np.array([[length_]])
+    def extract(self, streamline):
+        x1 = streamline[0, 0]
+        x2 = streamline[-1, 0]
 
-    def dist(self, features1, features2):
-        return np.abs(features1 - features2)[0, 0]
+        if x1 < 0 and x2 < 0:
+            return np.array([[-1]])
+
+        if x1 > 0 and x2 > 0:
+            return np.array([[1]])
+
+        return np.array([[0]])
 
 
-class Orientation(Metric):
-    def infer_features_shape(self, streamline):
-        return 3
+class LeftRightMiddleMetric(Metric):
 
-    def extract_features(self, streamline):
-        vector = np.mean(np.diff(streamline, axis=0), axis=0)
-        return vector/np.linalg.norm(vector)
+    def __init__(self):
+        super(LeftRightMiddleMetric, self).__init__(EndpointsXFeature())
 
-    def dist(self, features1, features2):
-        angle = np.rad2deg(np.abs(np.arccos(np.dot(features1, features2))))
+    def dist(self, feature1, feature2):
 
-        if angle > 90:
-            return 180 - angle
+        return 1 - np.float32(feature1 == feature2)
+
+
+def identify_left_right_middle(streamlines, cluster_map):
+    feature = EndpointsXFeature()
+
+    left_streamlines = []
+    right_streamlines = []
+    middle_streamlines = []
+
+    for cluster in cluster_map:
+        side = feature.extract(streamlines[cluster[0]])[0, 0]
+        if side == 0:
+            middle_streamlines.extend([streamlines[i] for i in cluster.indices])
+        elif side == 1:
+            right_streamlines.extend([streamlines[i] for i in cluster.indices])
         else:
-            return angle
+            left_streamlines.extend([streamlines[i] for i in cluster.indices])
+
+    return left_streamlines, right_streamlines, middle_streamlines
 
 
-class MDFpy(Metric):
-    def infer_features_shape(self, streamline):
-        return streamline.shape[0] * streamline.shape[1]
-
-    def extract_features(self, streamline):
-        N, D = streamline.shape
-
-        features = np.empty(N*D, dtype=streamline.base.dtype)
-        for y in range(N):
-            i = y*D
-            features[i+0] = streamline[y, 0]
-            features[i+1] = streamline[y, 1]
-            features[i+2] = streamline[y, 2]
-
-        return features
-
-    def dist(self, features1, features2):
-        D = 3
-        N = features2.shape[0] // D
-
-        d = 0.0
-        for y in range(N):
-            i = y*D
-            dx = features1[i+0] - features2[i+0]
-            dy = features1[i+1] - features2[i+1]
-            dz = features1[i+2] - features2[i+2]
-            d += np.sqrt(dx*dx + dy*dy + dz*dz)
-
-        return d / N
+def show_streamlines(streamlines):
+    ren = fvtk.ren()
+    fvtk.add(ren, fvtk.axes((100, 100, 100)))
+    ren.SetBackground(1, 1, 1)
+    #fvtk.add(ren, fvtk.line(streamlines, fvtk.colors.white))
+    fvtk.add(ren, fvtk.line(streamlines, line_colors(streamlines)))
+    fvtk.show(ren)
+    #fvtk.record(ren, n_frames=1, out_path='full_brain_initial.png',
+    #            size=(600, 600))
 
 
-# To become a test
+def show_centroids(centroids, colormap, clusters=None):
+    ren = fvtk.ren()
+    ren.SetBackground(1, 1, 1)
+    if clusters is None:
+        fvtk.add(ren, fvtk.line(centroids, colormap, linewidth=3.))
+    else:
+        cluster_sizes = np.array(map(len, clusters))
+        max_cz = np.max(cluster_sizes)
+        # min_cz = np.min(cluster_sizes)
+        for cluster, color, cz in zip(clusters, colormap, cluster_sizes):
+            fvtk.add(ren, fvtk.line(cluster.centroid,
+                                    color, linewidth=cz*10./float(max_cz)))
 
-s1 = np.array([[0,0,0], [1, 1, 0.]])
-s1 = set_number_of_points(s1, 12)
+    fvtk.show(ren)
+    #fvtk.record(ren, n_frames=1, out_path='full_brain_centroids.png',
+    #            size=(600, 600))
 
-s2 = np.array([[0,0,0], [1, -1.2, 0.]])
-s2 = set_number_of_points(s2, 12)
 
-o = Orientation()
-print(o.extract_features(s1))
-print(o.extract_features(s2))
-print(o.dist(o.extract_features(s1), o.extract_features(s2)))
+def show_clusters(streamlines, clusters, colormap):
+    ren = fvtk.ren()
+    colormap_full = np.ones((len(streamlines), 3))
+    for i, cluster in enumerate(clusters):
+        inds = cluster.indices
+        for j in inds:
+            colormap_full[j] = colormap[i]
+    fvtk.clear(ren)
+    ren.SetBackground(1, 1, 1)
+    fvtk.add(ren, fvtk.line(streamlines, colormap_full))
+    fvtk.show(ren)
+    fvtk.record(ren, n_frames=1, out_path='full_brain_clust.png',
+                size=(600, 600))
+
+
+def remove_clusters(cluster_map, size=None, alpha=1):
+
+    indices =[]
+    szs = np.array(map(len, cluster_map))
+    mean_sz = szs.mean()
+    std_sz = szs.std()
+
+    for cluster in cluster_map:
+        if size is None:
+            if len(cluster) >= mean_sz - alpha * std_sz:
+                indices += cluster.indices.tolist()
+        else:
+            if len(cluster) >= size:
+                indices += cluster.indices.tolist()
+
+
+    return indices
+
+
+def remove_clusters_by_length(cluster_map, length_range = (50, 300)):
+
+    indices =[]
+    for cluster in cluster_map:
+        if cluster.centroid >= length_range[0] and cluster.centroid <= length_range[1]:
+            indices += cluster.indices.tolist()
+    return indices
+
+
+def streamlines_from_indices(streamlines, indices):
+    return [streamlines[i] for i in indices]
+
+
+def qb_mdf(streamlines, threshold, disp=False):
+
+    qb = QuickBundles(threshold=threshold)
+
+    t0 = time()
+
+    cluster_map = qb.cluster(streamlines)
+
+    print('Duration %f sec' % (time()-t0, ))
+
+    if disp:
+
+        clusters = cluster_map.clusters
+        centroids = cluster_map.centroids
+
+        colormap = np.random.rand(len(clusters), 3)
+        #colormap = line_colors(centroids)
+
+        show_streamlines(streamlines)
+        show_centroids(centroids, colormap , clusters)
+
+        #show_centroids(centroids, colormap, clusters)
+        show_clusters(streamlines, clusters, colormap)
+
+    return cluster_map
+
 
 
 dname = '/home/eleftherios/Data/fancy_data/2013_02_26_Patrick_Delattre/'
 fname =  dname + 'streamlines_500K.trk'
 
+disp = False
+
 """
 Load full brain streamlines.
 """
 
-streams, hdr = tv.read(fname)
+streams, hdr = tv.read(fname, points_space='rasmm')
 
 streamlines = [i[0] for i in streams]
-streamlines = streamlines[:200]
-
-for s in streamlines:
-    s.setflags(write=True)
+streamlines = streamlines[:100000]
 
 pts = 20
 
 rstreamlines = set_number_of_points(streamlines, pts)
 
-# from ipdb import set_trace as dbg
-# dbg()
+rstreamline, shift_ = center_streamlines(rstreamlines)
 
+"""
+Length
+"""
+
+qb = QuickBundles(metric=ArcLengthMetric(), threshold=7.5)
 
 t0 = time()
 
-#qb = QuickBundles(threshold=20., metric=ArcLength())
+cluster_map = qb.cluster(rstreamlines)
 
-#cluster_map = qb.cluster(rstreamlines)
+print('Duration %f sec' % (time()-t0, ))
 
-# t1 = time()
-# print(t1 - t0)
+#remove_clusters(cluster_map, size=100)
+indices = remove_clusters_by_length(cluster_map, length_range = (50, 200))
 
-# qb2 = QuickBundles(threshold=20., metric=ArcLengthFast())
+streamlines = streamlines_from_indices(rstreamlines, indices)
 
-# cluster_map2 = qb2.cluster(rstreamlines)
+"""
+L-R-M
+"""
 
-# t2 = time()
-# print(t2 - t1)
+qb = QuickBundles(metric=LeftRightMiddleMetric(), threshold=0.5)
 
-qb3 = QuickBundles(threshold=20.)
+t0 = time()
 
-cluster_map3 = qb3.cluster(rstreamlines)
+cluster_map = qb.cluster(streamlines)
 
-# t3 = time()
-# print(t3 - t2)
+print('Duration %f sec' % (time()-t0, ))
 
-# qb4 = QuickBundles(threshold=20., metric=Orientation())
+print(len(cluster_map))
 
-# cluster_map4 = qb4.cluster(rstreamlines)
+colormap = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1.]])
 
-# t4 = time()
-# print(t4 - t3)
+if disp:
+    show_clusters(streamlines, cluster_map.clusters, colormap)
 
+L, R, M = identify_left_right_middle(streamlines, cluster_map)
+
+"""
+MDF
+"""
+
+streamlines = L
+
+cluster_map = qb_mdf(streamlines, 20)
+
+indices = remove_clusters(cluster_map, alpha=-1)
+streamlines = streamlines_from_indices(streamlines, indices)
+
+if disp:
+    show_streamlines(streamlines)
+
+cluster_map = qb_mdf(streamlines, 20, disp=disp)
+indices = remove_clusters(cluster_map, alpha=-1)
+
+if disp:
+    streamlines = streamlines_from_indices(streamlines, indices)
+
+
+print('Number of bundles %d' % (len(cluster_map),))
 
 
 """
-qb has attributes like `centroids` (cluster representatives), `total_clusters`
-(total number of clusters) and methods like `partitions` (complete description
-of all clusters) and `label2tracksids` (provides the indices of the streamlines
-which belong in a specific cluster).
-
-Lets first show the initial dataset.
+Winding angle
 """
 
-ren = fvtk.ren()
-# ren.SetBackground(1, 1, 1)
-# fvtk.add(ren, fvtk.line(streamlines, fvtk.colors.white))
+from dipy.tracking.metrics import winding
 
-# fvtk.show(ren)
-# fvtk.record(ren, n_frames=1, out_path='full_brain_initial.png', size=(600, 600))
+class WindingAngleFeature(Feature):
+    def infer_shape(self, streamline):
+        return (1, 1)
 
-"""
-.. figure:: full_brain_initial.png
-   :align: center
+    def extract(self, streamline):
+        return np.array([[winding(streamline)]])
 
-   **Initial Fornix dataset**.
+class WindingAngleMetric(Metric):
 
-Show the centroids of the fornix after clustering (with random colors):
-"""
+    def __init__(self):
+        super(WindingAngleMetric, self).__init__(WindingAngleFeature())
 
-# cs = cluster_map.centroids
-# centroids = []
-# for c in cs:
-#     centroids.append(c.reshape(pts, 3))
+    def dist(self, w1, w2):
+        return np.abs(w1 - w2)
 
-clusters = cluster_map4.clusters
+qb = QuickBundles(metric=WindingAngleMetric(), threshold=15)
 
-colormap = np.random.rand(len(clusters), 3)
+t0 = time()
 
+cluster_map = qb.cluster(streamlines)
 
-# fvtk.clear(ren)
-# ren.SetBackground(1, 1, 1)
-# #fvtk.add(ren, fvtk.line(streamlines, fvtk.colors.red, opacity=0.05))
-# fvtk.add(ren, fvtk.line(centroids, colormap, linewidth=3.))
-# fvtk.show(ren)
-# fvtk.record(ren, n_frames=1, out_path='full_brain_centroids.png', size=(600, 600))
+print('Duration %f sec' % (time()-t0, ))
 
-# 1/0
+print(len(cluster_map))
+
+colormap = np.random.rand(len(cluster_map), 3)
+show_clusters(streamlines, cluster_map.clusters, colormap)
+
 
 """
-.. figure:: full_brain_centroids.png
-   :align: center
-
-   **Showing the different QuickBundles centroids with random colors**.
-
-Show the labeled fornix (colors from centroids).
-"""
-
-colormap_full = np.ones((len(streamlines), 3))
-for i, cluster in enumerate(clusters):
-    inds = cluster.indices
-    for j in inds:
-        colormap_full[j] = colormap[i]
-
-fvtk.clear(ren)
-ren.SetBackground(1, 1, 1)
-fvtk.add(ren, fvtk.streamtube(streamlines, colormap_full))
-fvtk.show(ren)
-fvtk.record(ren, n_frames=1, out_path='full_brain_clust.png', size=(600, 600))
-
-"""
-.. figure:: full_brain_clust.png
-   :align: center
-
-   **Showing the different clusters with random colors**.
-
-It is also possible to save the complete QuickBundles object with pickling.
-"""
-
-save_pickle('QB.pkl', qb)
-
-"""
-Finally, here is a video of QuickBundles applied on a larger dataset.
-
 .. include:: ../links_names.inc
 
 .. [MarcCote14]
