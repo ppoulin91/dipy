@@ -11,7 +11,7 @@ First import the necessary modules.
 
 import numpy as np
 from nibabel import trackvis as tv
-from dipy.tracking.streamline import length, set_number_of_points, center_streamlines
+from dipy.tracking.streamline import set_number_of_points, center_streamlines
 from dipy.segment.clustering import QuickBundles
 from dipy.segment.metric import Metric, Feature
 from dipy.segment.metricspeed import ArcLengthMetric
@@ -144,8 +144,38 @@ def streamlines_from_indices(streamlines, indices):
     return [streamlines[i] for i in indices]
 
 
+def qb_mdf(streamlines, threshold, disp=False):
+
+    qb = QuickBundles(threshold=threshold)
+
+    t0 = time()
+
+    cluster_map = qb.cluster(streamlines)
+
+    print('Duration %f sec' % (time()-t0, ))
+
+    if disp:
+
+        clusters = cluster_map.clusters
+        centroids = cluster_map.centroids
+
+        colormap = np.random.rand(len(clusters), 3)
+        #colormap = line_colors(centroids)
+
+        show_streamlines(streamlines)
+        show_centroids(centroids, colormap , clusters)
+
+        #show_centroids(centroids, colormap, clusters)
+        show_clusters(streamlines, clusters, colormap)
+
+    return cluster_map
+
+
+
 dname = '/home/eleftherios/Data/fancy_data/2013_02_26_Patrick_Delattre/'
 fname =  dname + 'streamlines_500K.trk'
+
+disp = False
 
 """
 Load full brain streamlines.
@@ -154,7 +184,7 @@ Load full brain streamlines.
 streams, hdr = tv.read(fname, points_space='rasmm')
 
 streamlines = [i[0] for i in streams]
-streamlines = streamlines[:10000]
+streamlines = streamlines[:100000]
 
 pts = 20
 
@@ -195,10 +225,10 @@ print(len(cluster_map))
 
 colormap = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1.]])
 
-show_clusters(streamlines, cluster_map.clusters, colormap)
+if disp:
+    show_clusters(streamlines, cluster_map.clusters, colormap)
 
 L, R, M = identify_left_right_middle(streamlines, cluster_map)
-
 
 """
 MDF
@@ -206,7 +236,46 @@ MDF
 
 streamlines = L
 
-qb = QuickBundles(threshold=20.)
+cluster_map = qb_mdf(streamlines, 20)
+
+indices = remove_clusters(cluster_map, alpha=-1)
+streamlines = streamlines_from_indices(streamlines, indices)
+
+if disp:
+    show_streamlines(streamlines)
+
+cluster_map = qb_mdf(streamlines, 20, disp=disp)
+indices = remove_clusters(cluster_map, alpha=-1)
+
+if disp:
+    streamlines = streamlines_from_indices(streamlines, indices)
+
+
+print('Number of bundles %d' % (len(cluster_map),))
+
+
+"""
+Winding angle
+"""
+
+from dipy.tracking.metrics import winding
+
+class WindingAngleFeature(Feature):
+    def infer_shape(self, streamline):
+        return (1, 1)
+
+    def extract(self, streamline):
+        return np.array([[winding(streamline)]])
+
+class WindingAngleMetric(Metric):
+
+    def __init__(self):
+        super(WindingAngleMetric, self).__init__(WindingAngleFeature())
+
+    def dist(self, w1, w2):
+        return np.abs(w1 - w2)
+
+qb = QuickBundles(metric=WindingAngleMetric(), threshold=15)
 
 t0 = time()
 
@@ -214,24 +283,10 @@ cluster_map = qb.cluster(streamlines)
 
 print('Duration %f sec' % (time()-t0, ))
 
-clusters = cluster_map.clusters
-centroids = cluster_map.centroids
+print(len(cluster_map))
 
-colormap = np.random.rand(len(clusters), 3)
-#colormap = line_colors(centroids)
-
-
-show_streamlines(streamlines)
-show_centroids(centroids, colormap , clusters)
-
-#show_centroids(centroids, colormap, clusters)
-show_clusters(streamlines, clusters, colormap)
-
-
-indices = remove_clusters(cluster_map, alpha=-1)
-streamlines = streamlines_from_indices(streamlines, indices)
-show_streamlines(streamlines)
-
+colormap = np.random.rand(len(cluster_map), 3)
+show_clusters(streamlines, cluster_map.clusters, colormap)
 
 
 """

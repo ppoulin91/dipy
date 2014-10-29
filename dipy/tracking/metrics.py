@@ -36,7 +36,10 @@ def winding(xyz):
         tmp=np.arccos(v)
         turn+=tmp
 
-    return np.rad2deg(turn)
+    angle = np.rad2deg(turn)
+    if np.isnan(angle):
+        return 0
+    return angle
 
 
 def length(xyz, along=False):
