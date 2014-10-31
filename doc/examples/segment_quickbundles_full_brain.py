@@ -310,54 +310,54 @@ def full_brain_pipeline(streamlines):
 
 def bundle_specific_pruning(streamlines, bundle_name='af'):
 
-#    show_streamlines(streamlines, fname=bundle_name + '_initial.png')
-#
-#    """
-#    Length
-#    """
-#
-#    qb = QuickBundles(metric=ArcLengthMetric(), threshold=20)
-#
-#    t0 = time()
-#
-#    cluster_map = qb.cluster(streamlines)
-#
-#    print('QB-Length duration %f sec' % (time()-t0, ))
-#
-#    colormap = np.random.rand(len(cluster_map.clusters), 3)
-#
-#    show_clusters(streamlines, cluster_map.clusters, colormap, fname=bundle_name + '_length.png')
-#
-#    print('Number of clusters %d' % (len(cluster_map),) )
-#
-#    # TODO Historgram of lengths of streamlines
-#
-#    """
-#    Midpoint
-#    """
-#
-#    metric = SumPointwiseEuclideanMetric(MidpointFeature())
-#
-#    qb = QuickBundles(metric=metric, threshold=15.)
-#
-#    t0 = time()
-#
-#    cluster_map = qb.cluster(streamlines)
-#
-#    print('QB-midpoint duration %f sec' % (time()-t0, ))
-#
-#    colormap = np.random.rand(len(cluster_map.clusters), 3)
-#
-#    show_clusters(streamlines, cluster_map.clusters, colormap, fname=bundle_name + '_midpoint.png')
-#
-#    print('Number of clusters %d' % (len(cluster_map),) )
-#
-#    # TODO separate visualization clusters (IronMan stype - explode view)
-#
-#    """
-#    Stem Detection
-#    """
-#    qb_pts(streamlines, threshold=10., fname=bundle_name + '_stem.png')
+    show_streamlines(streamlines, fname=bundle_name + '_initial.png')
+
+    """
+    Length
+    """
+
+    qb = QuickBundles(metric=ArcLengthMetric(), threshold=20)
+
+    t0 = time()
+
+    cluster_map = qb.cluster(streamlines)
+
+    print('QB-Length duration %f sec' % (time()-t0, ))
+
+    colormap = np.random.rand(len(cluster_map.clusters), 3)
+
+    show_clusters(streamlines, cluster_map.clusters, colormap, fname=bundle_name + '_length.png')
+
+    print('Number of clusters %d' % (len(cluster_map),) )
+
+    # TODO Historgram of lengths of streamlines
+
+    """
+    Midpoint
+    """
+
+    metric = SumPointwiseEuclideanMetric(MidpointFeature())
+
+    qb = QuickBundles(metric=metric, threshold=15.)
+
+    t0 = time()
+
+    cluster_map = qb.cluster(streamlines)
+
+    print('QB-midpoint duration %f sec' % (time()-t0, ))
+
+    colormap = np.random.rand(len(cluster_map.clusters), 3)
+
+    show_clusters(streamlines, cluster_map.clusters, colormap, fname=bundle_name + '_midpoint.png')
+
+    print('Number of clusters %d' % (len(cluster_map),) )
+
+    # TODO separate visualization clusters (IronMan stype - explode view)
+
+    """
+    Stem Detection
+    """
+    qb_pts(streamlines, threshold=10., fname=bundle_name + '_stem.png')
 
 
     """
@@ -379,7 +379,7 @@ def bundle_specific_pruning(streamlines, bundle_name='af'):
         def dist(self, w1, w2):
             return np.abs(w1 - w2)
 
-    qb = QuickBundles(metric=WindingAngleMetric(), threshold=15)
+    qb = QuickBundles(metric=WindingAngleMetric(), threshold=50)
 
     t0 = time()
 
