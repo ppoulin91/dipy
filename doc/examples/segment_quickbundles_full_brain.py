@@ -21,7 +21,7 @@ from time import time
 from itertools import chain
 from dipy.segment.metric import SumPointwiseEuclideanMetric
 from dipy.tracking.metrics import winding
-
+from dipy.segment.metric import MidpointFeature
 
 class EndpointsXFeature(Feature):
 
@@ -186,7 +186,9 @@ def qb_mdf(streamlines, threshold, disp=False):
     return cluster_map
 
 
-def qb_pts(streamlines, threshold=10.):
+def qb_pts(streamlines, threshold=10., cam_pos=None,
+           cam_focal=None, cam_view=None,
+           magnification=1, fname=None, size=(900, 900)):
 
     pts = [np.array([p]) for p in chain(*streamlines)]
 
@@ -196,62 +198,26 @@ def qb_pts(streamlines, threshold=10.):
 
     ren=fvtk.ren()
     pts = np.squeeze(np.array(pts))
-    fvtk.add(ren, fvtk.dots(pts, fvtk.colors.red, opacity=0.2))
-    centroids = np.squeeze(np.array(cluster_map.centroids))
-
     cluster_sizes = map(len, cluster_map)
-    print(cluster_sizes)
-
     maxc = np.max(cluster_sizes)
 
-    for i in range(len(cluster_sizes)):
-        centroid = centroids[i]
-        centroid = np.array([centroid])
+    colormap = np.random.rand(len(cluster_map), 3)
 
-        fvtk.add(ren, fvtk.point(centroid, fvtk.colors.green,
-                                 point_radius=5 * cluster_sizes[i]/float(maxc),
-                                 theta=3, phi=3))
+    for cluster, c in zip(cluster_map, colormap):
+        fvtk.add(ren, fvtk.dots(pts[cluster.indices], c, opacity=0.2))
 
-        if cluster_sizes[i] == maxc:
-            fvtk.add(ren, fvtk.point(centroid, fvtk.colors.orange, opacity=0.5,
+        #fvtk.add(ren, fvtk.point(centroid, fvtk.colors.green,
+        #                         point_radius=5 * cluster_sizes[i]/float(maxc),
+        #                         theta=3, phi=3))
+
+        if len(cluster) == maxc:
+            fvtk.add(ren, fvtk.point(cluster.centroid, c, opacity=0.5,
                                      point_radius=threshold))
 
-    fvtk.show(ren)
-
-
-def qb_wa(streamlines):
-
-    """
-    Winding angle
-    """
-
-    class WindingAngleFeature(Feature):
-        def infer_shape(self, streamline):
-            return (1, 1)
-
-        def extract(self, streamline):
-            return np.array([[winding(streamline)]])
-
-    class WindingAngleMetric(Metric):
-
-        def __init__(self):
-            super(WindingAngleMetric, self).__init__(WindingAngleFeature())
-
-        def dist(self, w1, w2):
-            return np.abs(w1 - w2)
-
-    qb = QuickBundles(metric=WindingAngleMetric(), threshold=15)
-
-    t0 = time()
-
-    cluster_map = qb.cluster(streamlines)
-
-    print('Duration %f sec' % (time()-t0, ))
-
-    print(len(cluster_map))
-
-    colormap = np.random.rand(len(cluster_map), 3)
-    show_clusters(streamlines, cluster_map.clusters, colormap)
+    fvtk.show(ren, size=size)
+    fvtk.record(ren, cam_pos=cam_pos, cam_focal=cam_focal, cam_view=cam_view,
+                out_path=fname, path_numbering=False, n_frames=1, az_ang=10,
+                magnification=magnification, size=size, verbose=True)
 
 
 def full_brain_pipeline(streamlines):
@@ -344,32 +310,96 @@ def full_brain_pipeline(streamlines):
 
 def bundle_specific_pruning(streamlines, bundle_name='af'):
 
-    show_streamlines(streamlines, fname=bundle_name + '_initial.png')
+#    show_streamlines(streamlines, fname=bundle_name + '_initial.png')
+#
+#    """
+#    Length
+#    """
+#
+#    qb = QuickBundles(metric=ArcLengthMetric(), threshold=20)
+#
+#    t0 = time()
+#
+#    cluster_map = qb.cluster(streamlines)
+#
+#    print('QB-Length duration %f sec' % (time()-t0, ))
+#
+#    colormap = np.random.rand(len(cluster_map.clusters), 3)
+#
+#    show_clusters(streamlines, cluster_map.clusters, colormap, fname=bundle_name + '_length.png')
+#
+#    print('Number of clusters %d' % (len(cluster_map),) )
+#
+#    # TODO Historgram of lengths of streamlines
+#
+#    """
+#    Midpoint
+#    """
+#
+#    metric = SumPointwiseEuclideanMetric(MidpointFeature())
+#
+#    qb = QuickBundles(metric=metric, threshold=15.)
+#
+#    t0 = time()
+#
+#    cluster_map = qb.cluster(streamlines)
+#
+#    print('QB-midpoint duration %f sec' % (time()-t0, ))
+#
+#    colormap = np.random.rand(len(cluster_map.clusters), 3)
+#
+#    show_clusters(streamlines, cluster_map.clusters, colormap, fname=bundle_name + '_midpoint.png')
+#
+#    print('Number of clusters %d' % (len(cluster_map),) )
+#
+#    # TODO separate visualization clusters (IronMan stype - explode view)
+#
+#    """
+#    Stem Detection
+#    """
+#    qb_pts(streamlines, threshold=10., fname=bundle_name + '_stem.png')
+
 
     """
-    Length
+    Winding angle - projected sum curvature - total turning angle projected
     """
 
-    qb = QuickBundles(metric=ArcLengthMetric(), threshold=20)
+    class WindingAngleFeature(Feature):
+        def infer_shape(self, streamline):
+            return (1, 1)
+
+        def extract(self, streamline):
+            return np.array([[winding(streamline)]])
+
+    class WindingAngleMetric(Metric):
+
+        def __init__(self):
+            super(WindingAngleMetric, self).__init__(WindingAngleFeature())
+
+        def dist(self, w1, w2):
+            return np.abs(w1 - w2)
+
+    qb = QuickBundles(metric=WindingAngleMetric(), threshold=15)
 
     t0 = time()
 
     cluster_map = qb.cluster(streamlines)
 
-    print('QB-Length duration %f sec' % (time()-t0, ))
+    print('Duration %f sec' % (time()-t0, ))
 
-    colormap = np.random.rand(len(cluster_map.clusters), 3)
+    colormap = np.random.rand(len(cluster_map), 3)
 
-    show_clusters(streamlines, cluster_map.clusters, colormap, fname=bundle_name + '_length.png')
+    show_clusters(streamlines, cluster_map.clusters, colormap,
+                  fname=bundle_name + '_winding_angle.png')
 
     print('Number of clusters %d' % (len(cluster_map),) )
-
-    # TODO Historgram of lengths of streamlines
-
-
+    print(map(len, cluster_map))
+    print(np.squeeze(cluster_map.centroids))
 
 if __name__ == '__main__':
 
+
+    np.random.seed(43)
 
     dname = '/home/eleftherios/Data/fancy_data/2013_02_26_Patrick_Delattre/'
     fname =  dname + 'streamlines_500K.trk'
