@@ -15,10 +15,12 @@ from dipy.tracking.streamline import set_number_of_points, center_streamlines
 from dipy.segment.clustering import QuickBundles
 from dipy.segment.metric import Metric, Feature
 from dipy.segment.metricspeed import ArcLengthMetric
-from dipy.io.pickles import save_pickle
 from dipy.viz import fvtk
 from dipy.viz.colormap import line_colors
 from time import time
+from itertools import chain
+from dipy.segment.metric import SumPointwiseEuclideanMetric
+from dipy.tracking.metrics import winding
 
 
 class EndpointsXFeature(Feature):
@@ -68,18 +70,25 @@ def identify_left_right_middle(streamlines, cluster_map):
     return left_streamlines, right_streamlines, middle_streamlines
 
 
-def show_streamlines(streamlines):
+def show_streamlines(streamlines, cam_pos=None, cam_focal=None, cam_view=None,
+                     magnification=1, fname=None, size=(900, 900), axes=False):
     ren = fvtk.ren()
-    fvtk.add(ren, fvtk.axes((100, 100, 100)))
+    if axes :
+        fvtk.add(ren, fvtk.axes((100, 100, 100)))
     ren.SetBackground(1, 1, 1)
     #fvtk.add(ren, fvtk.line(streamlines, fvtk.colors.white))
     fvtk.add(ren, fvtk.line(streamlines, line_colors(streamlines)))
-    fvtk.show(ren)
-    #fvtk.record(ren, n_frames=1, out_path='full_brain_initial.png',
-    #            size=(600, 600))
+    fvtk.show(ren, size=size)
+
+    fvtk.record(ren, cam_pos=cam_pos, cam_focal=cam_focal, cam_view=cam_view,
+                out_path=fname, path_numbering=False, n_frames=1, az_ang=10,
+                magnification=magnification, size=size, verbose=True)
 
 
-def show_centroids(centroids, colormap, clusters=None):
+def show_centroids(centroids, colormap, clusters=None, cam_pos=None,
+                   cam_focal=None, cam_view=None,
+                   magnification=1, fname=None, size=(900, 900)):
+
     ren = fvtk.ren()
     ren.SetBackground(1, 1, 1)
     if clusters is None:
@@ -92,12 +101,17 @@ def show_centroids(centroids, colormap, clusters=None):
             fvtk.add(ren, fvtk.line(cluster.centroid,
                                     color, linewidth=cz*10./float(max_cz)))
 
-    fvtk.show(ren)
-    #fvtk.record(ren, n_frames=1, out_path='full_brain_centroids.png',
-    #            size=(600, 600))
+    fvtk.show(ren, size=size)
+
+    fvtk.record(ren, cam_pos=cam_pos, cam_focal=cam_focal, cam_view=cam_view,
+                out_path=fname, path_numbering=False, n_frames=1, az_ang=10,
+                magnification=magnification, size=size, verbose=True)
 
 
-def show_clusters(streamlines, clusters, colormap):
+def show_clusters(streamlines, clusters, colormap, cam_pos=None,
+                  cam_focal=None, cam_view=None,
+                  magnification=1, fname=None, size=(900, 900)):
+
     ren = fvtk.ren()
     colormap_full = np.ones((len(streamlines), 3))
     for i, cluster in enumerate(clusters):
@@ -107,9 +121,11 @@ def show_clusters(streamlines, clusters, colormap):
     fvtk.clear(ren)
     ren.SetBackground(1, 1, 1)
     fvtk.add(ren, fvtk.line(streamlines, colormap_full))
-    fvtk.show(ren)
-    fvtk.record(ren, n_frames=1, out_path='full_brain_clust.png',
-                size=(600, 600))
+    fvtk.show(ren, size=size)
+
+    fvtk.record(ren, cam_pos=cam_pos, cam_focal=cam_focal, cam_view=cam_view,
+                out_path=fname, path_numbering=False, n_frames=1, az_ang=10,
+                magnification=magnification, size=size, verbose=True)
 
 
 def remove_clusters(cluster_map, size=None, alpha=1):
@@ -126,7 +142,6 @@ def remove_clusters(cluster_map, size=None, alpha=1):
         else:
             if len(cluster) >= size:
                 indices += cluster.indices.tolist()
-
 
     return indices
 
@@ -171,131 +186,216 @@ def qb_mdf(streamlines, threshold, disp=False):
     return cluster_map
 
 
+def qb_pts(streamlines, threshold=10.):
 
-dname = '/home/eleftherios/Data/fancy_data/2013_02_26_Patrick_Delattre/'
-fname =  dname + 'streamlines_500K.trk'
+    pts = [np.array([p]) for p in chain(*streamlines)]
 
-disp = False
+    qb = QuickBundles(metric=SumPointwiseEuclideanMetric(),
+                      threshold=threshold)
+    cluster_map = qb.cluster(pts)
 
-"""
-Load full brain streamlines.
-"""
+    ren=fvtk.ren()
+    pts = np.squeeze(np.array(pts))
+    fvtk.add(ren, fvtk.dots(pts, fvtk.colors.red, opacity=0.2))
+    centroids = np.squeeze(np.array(cluster_map.centroids))
 
-streams, hdr = tv.read(fname, points_space='rasmm')
+    cluster_sizes = map(len, cluster_map)
+    print(cluster_sizes)
 
-streamlines = [i[0] for i in streams]
-streamlines = streamlines[:100000]
+    maxc = np.max(cluster_sizes)
 
-pts = 20
+    for i in range(len(cluster_sizes)):
+        centroid = centroids[i]
+        centroid = np.array([centroid])
 
-rstreamlines = set_number_of_points(streamlines, pts)
+        fvtk.add(ren, fvtk.point(centroid, fvtk.colors.green,
+                                 point_radius=5 * cluster_sizes[i]/float(maxc),
+                                 theta=3, phi=3))
 
-rstreamline, shift_ = center_streamlines(rstreamlines)
+        if cluster_sizes[i] == maxc:
+            fvtk.add(ren, fvtk.point(centroid, fvtk.colors.orange, opacity=0.5,
+                                     point_radius=threshold))
 
-"""
-Length
-"""
+    fvtk.show(ren)
 
-qb = QuickBundles(metric=ArcLengthMetric(), threshold=7.5)
 
-t0 = time()
+def qb_wa(streamlines):
 
-cluster_map = qb.cluster(rstreamlines)
+    """
+    Winding angle
+    """
 
-print('Duration %f sec' % (time()-t0, ))
+    class WindingAngleFeature(Feature):
+        def infer_shape(self, streamline):
+            return (1, 1)
 
-#remove_clusters(cluster_map, size=100)
-indices = remove_clusters_by_length(cluster_map, length_range = (50, 200))
+        def extract(self, streamline):
+            return np.array([[winding(streamline)]])
 
-streamlines = streamlines_from_indices(rstreamlines, indices)
+    class WindingAngleMetric(Metric):
 
-"""
-L-R-M
-"""
+        def __init__(self):
+            super(WindingAngleMetric, self).__init__(WindingAngleFeature())
 
-qb = QuickBundles(metric=LeftRightMiddleMetric(), threshold=0.5)
+        def dist(self, w1, w2):
+            return np.abs(w1 - w2)
 
-t0 = time()
+    qb = QuickBundles(metric=WindingAngleMetric(), threshold=15)
 
-cluster_map = qb.cluster(streamlines)
+    t0 = time()
 
-print('Duration %f sec' % (time()-t0, ))
+    cluster_map = qb.cluster(streamlines)
 
-print(len(cluster_map))
+    print('Duration %f sec' % (time()-t0, ))
 
-colormap = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1.]])
+    print(len(cluster_map))
 
-if disp:
+    colormap = np.random.rand(len(cluster_map), 3)
     show_clusters(streamlines, cluster_map.clusters, colormap)
 
-L, R, M = identify_left_right_middle(streamlines, cluster_map)
 
-"""
-MDF
-"""
+def full_brain_pipeline(streamlines):
 
-streamlines = L
+    show_streamlines(streamlines, fname='initial_full_brain.png')
 
-cluster_map = qb_mdf(streamlines, 20)
+    pts = 20
 
-indices = remove_clusters(cluster_map, alpha=-1)
-streamlines = streamlines_from_indices(streamlines, indices)
+    rstreamlines = set_number_of_points(streamlines, pts)
 
-if disp:
-    show_streamlines(streamlines)
+    rstreamline, shift_ = center_streamlines(rstreamlines)
 
-cluster_map = qb_mdf(streamlines, 20, disp=disp)
-indices = remove_clusters(cluster_map, alpha=-1)
+    """
+    Length
+    """
 
-if disp:
+    qb = QuickBundles(metric=ArcLengthMetric(), threshold=7.5)
+
+    t0 = time()
+
+    cluster_map = qb.cluster(rstreamlines)
+
+    print('QB-Length duration %f sec' % (time()-t0, ))
+
+    #remove_clusters(cluster_map, size=100)
+    indices = remove_clusters_by_length(cluster_map, length_range = (50, 250))
+
+    streamlines = streamlines_from_indices(rstreamlines, indices)
+
+    show_streamlines(streamlines, fname='after_length_full_brain.png')
+
+    #colormap = np.random.rand(len(cluster_map.clusters), 3)
+
+    #show_clusters(streamlines, cluster_map.clusters, colormap,
+    #              fname='after_length_clusters.png')
+
+    """
+    L-R-M
+    """
+
+    qb = QuickBundles(metric=LeftRightMiddleMetric(), threshold=0.5)
+
+    t0 = time()
+
+    cluster_map = qb.cluster(streamlines)
+
+    print('QB-LRM duration %f sec' % (time()-t0, ))
+
+    print(len(cluster_map))
+
+    colormap = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1.]])
+
+
+    show_clusters(streamlines, cluster_map.clusters, colormap,
+                  fname='LRM_clusters.png')
+
+    L, R, M = identify_left_right_middle(streamlines, cluster_map)
+
+    """
+    MDF
+    """
+
+    streamlines = L
+
+    qb = QuickBundles(threshold=20.)
+
+    t0 = time()
+
+    cluster_map = qb.cluster(streamlines)
+
+    print('MDF duration %f sec' % (time()-t0, ))
+
+    clusters = cluster_map.clusters
+    centroids = cluster_map.centroids
+
+    colormap = np.random.rand(len(clusters), 3)
+    #colormap = line_colors(centroids)
+
+    show_centroids(centroids, colormap , clusters, fname='mdf_centroids.png')
+
+    show_clusters(streamlines, clusters, colormap, fname='mdf_clusters.png')
+
+    indices = remove_clusters(cluster_map, alpha=-1)
     streamlines = streamlines_from_indices(streamlines, indices)
 
+    show_streamlines(streamlines, fname='remove_clusters.png')
 
-print('Number of bundles %d' % (len(cluster_map),))
-
-
-"""
-Winding angle
-"""
-
-from dipy.tracking.metrics import winding
-
-class WindingAngleFeature(Feature):
-    def infer_shape(self, streamline):
-        return (1, 1)
-
-    def extract(self, streamline):
-        return np.array([[winding(streamline)]])
-
-class WindingAngleMetric(Metric):
-
-    def __init__(self):
-        super(WindingAngleMetric, self).__init__(WindingAngleFeature())
-
-    def dist(self, w1, w2):
-        return np.abs(w1 - w2)
-
-qb = QuickBundles(metric=WindingAngleMetric(), threshold=15)
-
-t0 = time()
-
-cluster_map = qb.cluster(streamlines)
-
-print('Duration %f sec' % (time()-t0, ))
-
-print(len(cluster_map))
-
-colormap = np.random.rand(len(cluster_map), 3)
-show_clusters(streamlines, cluster_map.clusters, colormap)
+    print('Number of bundles %d' % (len(cluster_map),))
 
 
-"""
-.. include:: ../links_names.inc
+def bundle_specific_pruning(streamlines, bundle_name='af'):
 
-.. [MarcCote14]
+    show_streamlines(streamlines, fname=bundle_name + '_initial.png')
 
-.. [Garyfallidis12] Garyfallidis E. et al., QuickBundles a method for
-                    tractography simplification, Frontiers in Neuroscience, vol
-                    6, no 175, 2012.
+    """
+    Length
+    """
 
-"""
+    qb = QuickBundles(metric=ArcLengthMetric(), threshold=20)
+
+    t0 = time()
+
+    cluster_map = qb.cluster(streamlines)
+
+    print('QB-Length duration %f sec' % (time()-t0, ))
+
+    colormap = np.random.rand(len(cluster_map.clusters), 3)
+
+    show_clusters(streamlines, cluster_map.clusters, colormap, fname=bundle_name + '_length.png')
+
+    print('Number of clusters %d' % (len(cluster_map),) )
+
+    # TODO Historgram of lengths of streamlines
+
+
+
+if __name__ == '__main__':
+
+
+    dname = '/home/eleftherios/Data/fancy_data/2013_02_26_Patrick_Delattre/'
+    fname =  dname + 'streamlines_500K.trk'
+
+    #
+    #
+    #dname = '/home/eleftherios/Data/fancy_data/2013_02_28_Zhara_Owji/TRK_files/'
+    #fname = dname + 'bundles_ifof.right.trk'
+    ##fname = dname + 'bundles_af.right.trk'
+    #
+    dname = '/home/eleftherios/Data/fancy_data/2013_03_26_Emmanuelle_Renauld/TRK_files/'
+    fname = dname + 'bundles_af.right.trk'
+
+    streams, hdr = tv.read(fname, points_space='rasmm')
+
+    streamlines = [i[0] for i in streams]
+    streamlines = streamlines[:100000]
+
+    bundle_specific_pruning(streamlines)
+
+    """
+    Load full brain streamlines.
+
+
+
+
+    full_brain_pipeline(streamlines)
+    """
+
