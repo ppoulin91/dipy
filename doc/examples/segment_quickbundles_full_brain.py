@@ -170,6 +170,47 @@ def show_exploded_clusters(clusters, offsets=None, scale=500, colormap=None, cam
                     magnification=magnification, size=size, verbose=True)
 
 
+def show_exploded_elef(list_of_clusters, offsets=None, scale=500, colormap=None, cam_pos=None,
+                       cam_focal=None, cam_view=None,
+                       magnification=1, fname=None, size=(900, 900)):
+
+    def uniform_spherical_distribution(N):
+        import math
+        pts = []
+        inc = math.pi * (3 - math.sqrt(5))
+        off = 2 / float(N)
+        for k in range(0, int(N)):
+            y = k * off - 1 + (off / 2)
+            r = math.sqrt(1 - y*y)
+            phi = k * inc
+            pts.append([math.cos(phi)*r, y, math.sin(phi)*r])
+        return np.array(pts)
+
+    bg = (1, 1, 1)
+    if colormap is None:
+        colormap = distinguishable_colormap(bg=bg)
+
+    if offsets is None:
+        offsets = uniform_spherical_distribution(len(list_of_clusters))
+
+    offsets = [scale * offset for offset in offsets]
+
+    ren = fvtk.ren()
+    fvtk.clear(ren)
+    ren.SetBackground(*bg)
+    for clusters, offset in izip(list_of_clusters, offsets):
+        max_cz = np.max(map(len, clusters))
+
+        for cluster, color in izip(clusters, colormap):
+            fvtk.add(ren, fvtk.line(cluster.centroid + offset, color, linewidth=len(cluster)*10./float(max_cz)))
+
+    fvtk.show(ren, size=size)
+
+    if fname is not None:
+        fvtk.record(ren, cam_pos=cam_pos, cam_focal=cam_focal, cam_view=cam_view,
+                    out_path=fname, path_numbering=False, n_frames=1, az_ang=10,
+                    magnification=magnification, size=size, verbose=True)
+
 def remove_clusters_by_size(clusters, min_size=0, alpha=1):
     sizes = np.array(map(len, clusters))
     mean_size = sizes.mean()
@@ -332,11 +373,11 @@ def full_brain_pipeline(streamlines):
     cluster_map.refdata = streamlines
     print("QB-Length duration: {:.2f} sec".format(time()-t0))
 
-    show_exploded_clusters(cluster_map, fname='length_full_brain_clusters_exploded.png')
-    clusters = remove_clusters_by_length(cluster_map, low=50, high=250)
+    #show_exploded_clusters(cluster_map, fname='length_full_brain_clusters_exploded.png')
+    clusters = remove_clusters_by_length(cluster_map, low=50, high=200)
 
-    show_clusters(clusters, fname='length_full_brain_clusters.png')
-    show_exploded_clusters(clusters, fname='length_full_brain_clusters_exploded.png')
+    #show_clusters(clusters, fname='length_full_brain_clusters.png')
+    #show_exploded_clusters(clusters, fname='length_full_brain_clusters_exploded.png')
 
     """
     L-R-M
@@ -352,7 +393,7 @@ def full_brain_pipeline(streamlines):
     print("QB-LRM duration: {:.2f} sec".format(time()-t0))
 
     clusters = cluster_map.clusters
-    show_clusters(clusters, fname='LRM_full_brain_clusters.png')
+    #show_clusters(clusters, fname='LRM_full_brain_clusters.png')
 
     L, R, M = identify_left_right_middle_clusters(clusters)
     show_exploded_clusters([L, R, M], offsets=np.array([[-1, 0, 0], [1, 0, 0], [0, 0, 0]]), scale=200,
@@ -367,10 +408,16 @@ def full_brain_pipeline(streamlines):
     clusters = clusters_L + clusters_R + clusters_M
 
     print("Number of bundles before removing outliers: {0}".format(len(clusters)))
-    clusters = remove_clusters_by_size(clusters, alpha=-1)
-    print("Number of bundles: {0}".format(len(clusters)))
+    clusters_L = remove_clusters_by_size(clusters_L, alpha=-0.5)
+    clusters_R = remove_clusters_by_size(clusters_R, alpha=-0.5)
+    clusters_M = remove_clusters_by_size(clusters_M, alpha=-0.5)
+    #print("Number of bundles: {0}".format(len(clusters)))
+    clusters = clusters_L + clusters_R + clusters_M
 
     show_centroids(clusters, fname='mdf_centroids.png')
+    show_exploded_elef([clusters_L, clusters_R, clusters_M],
+                       offsets=np.array([[-1, 0, 0], [1, 0, 0], [0, 0, 0]]),
+                       scale=200, fname='mdf_centroids_exploded.png')
     show_clusters(clusters, fname='MDF_full_brain_clusters.png')
     show_exploded_clusters(clusters, fname='MDF_full_brain_clusters_exploded.png')
 
@@ -489,19 +536,19 @@ def run_bundle_specific_pruning():
 
 
 def run_full_brain_pipeline():
-    #dname = '/home/eleftherios/Data/fancy_data/2013_02_26_Patrick_Delattre/'
-    dname = '/home/marc/research/data/streamlines/ismrm/'
-    fname =  dname + 'streamlines_500K.trk'
+    dname = '/home/eleftherios/Data/fancy_data/2013_02_26_Patrick_Delattre/'
+    #dname = '/home/marc/research/data/streamlines/ismrm/'
+    fname = dname + 'streamlines_500K.trk'
 
     # Load streamlines
-    import os
-    if not os.path.isfile('data.npy'):
-        streams, hdr = tv.read(fname, points_space='rasmm')
-        streamlines = [i[0] for i in streams]
-        streamlines = streamlines[:1000]
-        np.save('data.npy', streamlines)
-    else:
-        streamlines = np.load('data.npy')
+    #import os
+    #if not os.path.isfile('data.npy'):
+    streams, hdr = tv.read(fname, points_space='rasmm')
+    streamlines = [i[0] for i in streams[:100000]]
+    #streamlines = streamlines[:10000]
+    #np.save('data.npy', streamlines)
+    #else:
+    #streamlines = np.load('data.npy')
 
     full_brain_pipeline(streamlines)
 
