@@ -14,7 +14,7 @@ from nibabel import trackvis as tv
 from dipy.tracking.streamline import set_number_of_points, center_streamlines
 from dipy.segment.clustering import QuickBundles
 from dipy.segment.metric import Metric, Feature
-from dipy.segment.metricspeed import ArcLengthMetric
+from dipy.segment.metric import HausdorffMetric, ArcLengthMetric
 from dipy.viz import fvtk
 from dipy.viz.colormap import line_colors
 from time import time
@@ -131,9 +131,9 @@ def show_clusters(clusters, colormap=None, cam_pos=None,
                     magnification=magnification, size=size, verbose=True)
 
 
-def show_exploded_clusters(clusters, offsets=None, scale=500, colormap=None, cam_pos=None,
-                           cam_focal=None, cam_view=None,
-                           magnification=1, fname=None, size=(900, 900)):
+def show_clusters_exploded_view(clusters, offsets=None, scale=500, colormap=None, cam_pos=None,
+                                cam_focal=None, cam_view=None,
+                                magnification=1, fname=None, size=(900, 900)):
 
     def uniform_spherical_distribution(N):
         import math
@@ -287,25 +287,24 @@ def mdf(streamlines, threshold, pts=None):
     return cluster_map.clusters
 
 
-def HausdorffMetric(Metric):
-    def dist(self, streamline1, streamline2):
-        max_d = 0.0
-        for a in streamline1:
-            min_d = np.inf
-            for b in streamline2:
-                min_d = min(min_d, np.sum((a-b)**2))
+# class HausdorffMetric(Metric):
+#     def dist(self, streamline1, streamline2):
+#         max_d = 0.0
+#         for a in streamline1:
+#             min_d = np.inf
+#             for b in streamline2:
+#                 min_d = min(min_d, np.sum((a-b)**2))
 
-            max_d = max(max_d, min_d)
+#             max_d = max(max_d, min_d)
 
-        for b in streamline2:
-            min_d = np.inf
-            for a in streamline1:
-                min_d = min(min_d, np.sum((a-b)**2))
+#         for b in streamline2:
+#             min_d = np.inf
+#             for a in streamline1:
+#                 min_d = min(min_d, np.sum((a-b)**2))
 
-            max_d = max(max_d, min_d)
+#             max_d = max(max_d, min_d)
 
-        return max_d
-
+#         return max_d
 
 
 def hausdorff(streamlines, threshold):
@@ -332,11 +331,11 @@ def full_brain_pipeline(streamlines):
     cluster_map.refdata = streamlines
     print("QB-Length duration: {:.2f} sec".format(time()-t0))
 
-    show_exploded_clusters(cluster_map, fname='length_full_brain_clusters_exploded.png')
+    show_clusters_exploded_view(cluster_map, fname='length_full_brain_clusters_exploded.png')
     clusters = remove_clusters_by_length(cluster_map, low=50, high=250)
 
     show_clusters(clusters, fname='length_full_brain_clusters.png')
-    show_exploded_clusters(clusters, fname='length_full_brain_clusters_exploded.png')
+    show_clusters_exploded_view(clusters, fname='length_full_brain_clusters_exploded.png')
 
     """
     L-R-M
@@ -355,7 +354,7 @@ def full_brain_pipeline(streamlines):
     show_clusters(clusters, fname='LRM_full_brain_clusters.png')
 
     L, R, M = identify_left_right_middle_clusters(clusters)
-    show_exploded_clusters([L, R, M], offsets=np.array([[-1, 0, 0], [1, 0, 0], [0, 0, 0]]), scale=200,
+    show_clusters_exploded_view([L, R, M], offsets=np.array([[-1, 0, 0], [1, 0, 0], [0, 0, 0]]), scale=200,
                            fname='LRM_full_brain_clusters_exploded.png')
 
     """
@@ -372,22 +371,25 @@ def full_brain_pipeline(streamlines):
 
     show_centroids(clusters, fname='mdf_centroids.png')
     show_clusters(clusters, fname='MDF_full_brain_clusters.png')
-    show_exploded_clusters(clusters, fname='MDF_full_brain_clusters_exploded.png')
+    show_clusters_exploded_view(clusters, fname='MDF_full_brain_clusters_exploded.png')
 
 
 def bundle_specific_pruning(streamlines, bundle_name='af'):
     show_streamlines(streamlines, fname=bundle_name + '_initial.png')
 
-
     """
     MDF
     """
-
+    clusters = mdf(streamlines, threshold=20., pts=12)
+    show_clusters(clusters)
 
     """
     Hausdorff
     """
+    clusters = hausdorff(streamlines, threshold=20.)
+    show_clusters(clusters)
 
+    return
 
     """
     Length
@@ -507,7 +509,7 @@ def run_full_brain_pipeline():
 
 if __name__ == '__main__':
     np.random.seed(43)
-    run_full_brain_pipeline()
-    #run_bundle_specific_pruning()
+    #run_full_brain_pipeline()
+    run_bundle_specific_pruning()
 
 
