@@ -170,6 +170,47 @@ def show_clusters_exploded_view(clusters, offsets=None, scale=500, colormap=None
                     magnification=magnification, size=size, verbose=True)
 
 
+def show_exploded_elef(list_of_clusters, offsets=None, scale=500, colormap=None, cam_pos=None,
+                       cam_focal=None, cam_view=None,
+                       magnification=1, fname=None, size=(900, 900)):
+
+    def uniform_spherical_distribution(N):
+        import math
+        pts = []
+        inc = math.pi * (3 - math.sqrt(5))
+        off = 2 / float(N)
+        for k in range(0, int(N)):
+            y = k * off - 1 + (off / 2)
+            r = math.sqrt(1 - y*y)
+            phi = k * inc
+            pts.append([math.cos(phi)*r, y, math.sin(phi)*r])
+        return np.array(pts)
+
+    bg = (1, 1, 1)
+    if colormap is None:
+        colormap = distinguishable_colormap(bg=bg)
+
+    if offsets is None:
+        offsets = uniform_spherical_distribution(len(list_of_clusters))
+
+    offsets = [scale * offset for offset in offsets]
+
+    ren = fvtk.ren()
+    fvtk.clear(ren)
+    ren.SetBackground(*bg)
+    for clusters, offset in izip(list_of_clusters, offsets):
+        max_cz = np.max(map(len, clusters))
+
+        for cluster, color in izip(clusters, colormap):
+            fvtk.add(ren, fvtk.line(cluster.centroid + offset, color, linewidth=len(cluster)*10./float(max_cz)))
+
+    fvtk.show(ren, size=size)
+
+    if fname is not None:
+        fvtk.record(ren, cam_pos=cam_pos, cam_focal=cam_focal, cam_view=cam_view,
+                    out_path=fname, path_numbering=False, n_frames=1, az_ang=10,
+                    magnification=magnification, size=size, verbose=True)
+
 def remove_clusters_by_size(clusters, min_size=0, alpha=1):
     sizes = np.array(map(len, clusters))
     mean_size = sizes.mean()
@@ -366,16 +407,23 @@ def full_brain_pipeline(streamlines):
     clusters = clusters_L + clusters_R + clusters_M
 
     print("Number of bundles before removing outliers: {0}".format(len(clusters)))
-    clusters = remove_clusters_by_size(clusters, alpha=-1)
-    print("Number of bundles: {0}".format(len(clusters)))
+    clusters_L = remove_clusters_by_size(clusters_L, alpha=-0.5)
+    clusters_R = remove_clusters_by_size(clusters_R, alpha=-0.5)
+    clusters_M = remove_clusters_by_size(clusters_M, alpha=-0.5)
+    #print("Number of bundles: {0}".format(len(clusters)))
+    clusters = clusters_L + clusters_R + clusters_M
 
     show_centroids(clusters, fname='mdf_centroids.png')
+    show_exploded_elef([clusters_L, clusters_R, clusters_M],
+                       offsets=np.array([[-1, 0, 0], [1, 0, 0], [0, 0, 0]]),
+                       scale=200, fname='mdf_centroids_exploded.png')
     show_clusters(clusters, fname='MDF_full_brain_clusters.png')
     show_clusters_exploded_view(clusters, fname='MDF_full_brain_clusters_exploded.png')
 
 
 def bundle_specific_pruning(streamlines, bundle_name='af'):
     show_streamlines(streamlines, fname=bundle_name + '_initial.png')
+
 
     """
     MDF
