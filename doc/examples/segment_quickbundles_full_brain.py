@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 ============================================================================
 Tractography Clustering with QuickBundles for Immense Full Brain Datasets
@@ -170,6 +171,100 @@ def show_clusters_exploded_view(clusters, offsets=None, scale=500, colormap=None
                     magnification=magnification, size=size, verbose=True)
 
 
+def show_stem(clusters, stem_radius, colormap=None, cam_pos=None,
+              cam_focal=None, cam_view=None,
+              magnification=1, fname=None, size=(900, 900)):
+
+    bg = (1, 1, 1)
+    if colormap is None:
+        colormap = distinguishable_colormap(bg=bg)
+
+    ren=fvtk.ren()
+    #pts = np.squeeze(np.array(pts))
+    cluster_sizes = map(len, clusters)
+    maxc = np.max(cluster_sizes)
+
+    for cluster, color in izip(clusters, colormap):
+        fvtk.add(ren, fvtk.dots(np.squeeze(list(cluster)), color, opacity=0.2))
+
+        #fvtk.add(ren, fvtk.point(centroid, fvtk.colors.green,
+        #                         point_radius=5 * cluster_sizes[i]/float(maxc),
+        #                         theta=3, phi=3))
+
+        if len(cluster) == maxc:
+            fvtk.add(ren, fvtk.point(cluster.centroid, color, opacity=0.5,
+                                     point_radius=stem_radius))
+
+    fvtk.show(ren, size=size)
+    if fname is not None:
+        fvtk.record(ren, cam_pos=cam_pos, cam_focal=cam_focal, cam_view=cam_view,
+                    out_path=fname, path_numbering=False, n_frames=1, az_ang=10,
+                    magnification=magnification, size=size, verbose=True)
+
+
+def get_bounding_box(streamlines):
+    box_min = np.array([np.inf, np.inf, np.inf])
+    box_max = -np.array([np.inf, np.inf, np.inf])
+
+    for s in streamlines:
+        box_min = np.minimum(box_min, np.min(s, axis=0))
+        box_max = np.maximum(box_max, np.max(s, axis=0))
+
+    return box_min, box_max
+
+
+def show_clusters_grid_view(clusters, colormap=None, makelabel=None,
+                            cam_pos=None, cam_focal=None, cam_view=None,
+                            magnification=1, fname=None, size=(900, 900)):
+
+    def grid_distribution(N):
+        def middle_divisors(n):
+            for i in range(int(n ** (0.5)), 2, -1):
+                if n % i == 0:
+                    return i, n // i
+
+            return middle_divisors(n+1)  # If prime number take next one
+
+        height, width = middle_divisors(N)
+        X, Y, Z = np.meshgrid(np.arange(width), np.arange(height), [0])
+        return np.array([X.flatten(), Y.flatten(), Z.flatten()]).T
+
+    bg = (1, 1, 1)
+    if colormap is None:
+        colormap = distinguishable_colormap(bg=bg)
+
+    positions = grid_distribution(len(clusters))
+
+    box_min, box_max = get_bounding_box(chain(*clusters))
+
+    ren = fvtk.ren()
+    fvtk.clear(ren)
+    ren.SetBackground(*bg)
+
+    width, height, depth = box_max - box_min
+    text_scale = [height*0.1] * 3
+    for cluster, color, pos in izip(clusters, colormap, positions):
+        offset = pos * (box_max - box_min)
+        offset[0] += pos[0] * 4*text_scale[0]
+        offset[1] += pos[1] * 4*text_scale[1]
+        fvtk.add(ren, fvtk.line([s + offset for s in cluster], [color]*len(cluster)))
+
+        if makelabel is not None:
+            label = makelabel(cluster)
+            #text_scale = tuple([scale / 50.] * 3)
+            text_pos = offset + np.array([0, height+4*text_scale[1], depth])/2.
+            text_pos[0] -= len(label) / 2. * text_scale[0]
+
+            fvtk.label(ren, text=label, pos=text_pos, scale=text_scale, color=(0, 0, 0))
+
+    fvtk.show(ren, size=size)
+
+    if fname is not None:
+        fvtk.record(ren, cam_pos=cam_pos, cam_focal=cam_focal, cam_view=cam_view,
+                    out_path=fname, path_numbering=False, n_frames=1, az_ang=10,
+                    magnification=magnification, size=size, verbose=True)
+
+
 def show_exploded_elef(list_of_clusters, offsets=None, scale=500, colormap=None, cam_pos=None,
                        cam_focal=None, cam_view=None,
                        magnification=1, fname=None, size=(900, 900)):
@@ -210,6 +305,7 @@ def show_exploded_elef(list_of_clusters, offsets=None, scale=500, colormap=None,
         fvtk.record(ren, cam_pos=cam_pos, cam_focal=cam_focal, cam_view=cam_view,
                     out_path=fname, path_numbering=False, n_frames=1, az_ang=10,
                     magnification=magnification, size=size, verbose=True)
+
 
 def remove_clusters_by_size(clusters, min_size=0, alpha=1):
     sizes = np.array(map(len, clusters))
@@ -322,41 +418,22 @@ def mdf(streamlines, threshold, pts=None):
 
     t0 = time()
     cluster_map = qb.cluster(streamlines)
-    cluster_map.refdata = streamlines
     print("QB-MDF duration: {:.2f} sec".format(time()-t0))
 
-    return cluster_map.clusters
+    return cluster_map
 
 
-# class HausdorffMetric(Metric):
-#     def dist(self, streamline1, streamline2):
-#         max_d = 0.0
-#         for a in streamline1:
-#             min_d = np.inf
-#             for b in streamline2:
-#                 min_d = min(min_d, np.sum((a-b)**2))
+def hausdorff(streamlines, threshold, pts=None):
+    if pts is not None:
+        streamlines = set_number_of_points(streamlines, pts)
 
-#             max_d = max(max_d, min_d)
-
-#         for b in streamline2:
-#             min_d = np.inf
-#             for a in streamline1:
-#                 min_d = min(min_d, np.sum((a-b)**2))
-
-#             max_d = max(max_d, min_d)
-
-#         return max_d
-
-
-def hausdorff(streamlines, threshold):
     qb = QuickBundles(metric=HausdorffMetric(), threshold=threshold)
 
     t0 = time()
     cluster_map = qb.cluster(streamlines)
-    cluster_map.refdata = streamlines
     print("QB-Hausdorff duration: {:.2f} sec".format(time()-t0))
 
-    return cluster_map.clusters
+    return cluster_map
 
 
 def full_brain_pipeline(streamlines):
@@ -372,11 +449,22 @@ def full_brain_pipeline(streamlines):
     cluster_map.refdata = streamlines
     print("QB-Length duration: {:.2f} sec".format(time()-t0))
 
-    show_clusters_exploded_view(cluster_map, fname='length_full_brain_clusters_exploded.png')
-    clusters = remove_clusters_by_length(cluster_map, low=50, high=250)
+    makelabel = lambda c: "{:.2f}mm".format(c.centroid[0, 0])
+    #show_clusters_exploded_view(cluster_map, makelabel=makelabel, fname='length_full_brain_clusters_exploded.png')
+    show_clusters(cluster_map)
+    show_clusters_grid_view(cluster_map, makelabel=makelabel, fname='length_full_brain_clusters_grid.png')
 
-    show_clusters(clusters, fname='length_full_brain_clusters.png')
-    show_clusters_exploded_view(clusters, fname='length_full_brain_clusters_exploded.png')
+    print "low: ",
+    low = float(raw_input())
+    #low = 50
+    print "high: ",
+    high = float(raw_input())
+    #high = 150
+    clusters = remove_clusters_by_length(cluster_map, low=low, high=high)
+
+    show_clusters(clusters)
+    #show_clusters_exploded_view(clusters, makelabel=makelabel, fname='length_full_brain_clusters_exploded.png')
+    show_clusters_grid_view(clusters, makelabel=makelabel, fname='length_full_brain_clusters_grid.png')
 
     """
     L-R-M
@@ -396,52 +484,241 @@ def full_brain_pipeline(streamlines):
 
     L, R, M = identify_left_right_middle_clusters(clusters)
     show_clusters_exploded_view([L, R, M], offsets=np.array([[-1, 0, 0], [1, 0, 0], [0, 0, 0]]), scale=200,
-                           fname='LRM_full_brain_clusters_exploded.png')
+                                 fname='LRM_full_brain_clusters_exploded.png')
 
     """
     MDF
     """
     clusters_L = mdf(L, threshold=20., pts=20)
+    clusters_L.refdata = L
     clusters_R = mdf(R, threshold=20., pts=20)
+    clusters_R.refdata = R
     clusters_M = mdf(M, threshold=20., pts=20)
-    clusters = clusters_L + clusters_R + clusters_M
+    clusters_M.refdata = M
 
-    print("Number of bundles before removing outliers: {0}".format(len(clusters)))
-    clusters_L = remove_clusters_by_size(clusters_L, alpha=-0.5)
-    clusters_R = remove_clusters_by_size(clusters_R, alpha=-0.5)
-    clusters_M = remove_clusters_by_size(clusters_M, alpha=-0.5)
-    #print("Number of bundles: {0}".format(len(clusters)))
-    clusters = clusters_L + clusters_R + clusters_M
+    clusters = list(clusters_L) + list(clusters_R) + list(clusters_M)
+
+    print("Number of bundles: {0}".format(len(clusters)))
+    sizes = map(len, clusters)
+    print "Sizes: {:.2f} ± {:.2f}".format(np.mean(sizes), np.std(sizes))
 
     show_centroids(clusters, fname='mdf_centroids.png')
     show_exploded_elef([clusters_L, clusters_R, clusters_M],
                        offsets=np.array([[-1, 0, 0], [1, 0, 0], [0, 0, 0]]),
                        scale=200, fname='mdf_centroids_exploded.png')
+
     show_clusters(clusters, fname='MDF_full_brain_clusters.png')
     show_clusters_exploded_view(clusters, fname='MDF_full_brain_clusters_exploded.png')
 
+    makelabel = lambda c: "{}".format(len(c))
+    show_clusters_grid_view(clusters, makelabel=makelabel, fname='MDF_full_brain_clusters_grid.png')
 
-def bundle_specific_pruning(streamlines, bundle_name='af'):
-    show_streamlines(streamlines, fname=bundle_name + '_initial.png')
+    print "Alpha: ",
+    alpha = float(raw_input())
+
+    clusters_L = remove_clusters_by_size(clusters_L, alpha=alpha)
+    clusters_R = remove_clusters_by_size(clusters_R, alpha=alpha)
+    clusters_M = remove_clusters_by_size(clusters_M, alpha=alpha)
+    clusters = clusters_L + clusters_R + clusters_M
+
+
+    print("Number of bundles: {0}".format(len(clusters)))
+    sizes = map(len, clusters)
+    print "Sizes: {:.2f} ± {:.2f}".format(np.mean(sizes), np.std(sizes))
+
+    show_clusters_grid_view(clusters, makelabel=makelabel, fname='MDF_full_brain_clusters_grid.png')
+
+    show_exploded_elef([clusters_L, clusters_R, clusters_M],
+                       offsets=np.array([[-1, 0, 0], [1, 0, 0], [0, 0, 0]]),
+                       scale=200, fname='mdf_centroids_exploded.png')
+
+    show_clusters_exploded_view(clusters, fname='MDF_full_brain_clusters_exploded.png')
+    show_clusters(clusters, fname='MDF_full_brain_clusters.png')
+
+
+def bundle_specific_stats(streamlines, bundle_name='af'):
+
+    rstreamlines = set_number_of_points(streamlines, 12)
+
+    def plot_nb_clusters_vs_threshold(rstreamlines):
+        nb_clusters_per_threshold = []
+        clusters_size_per_threshold = []
+        thresholds = np.linspace(0, 30, 100)
+        for t in thresholds:
+            cluster_map = mdf(rstreamlines, threshold=t)
+
+            nb_clusters_per_threshold.append(len(cluster_map))
+            clusters_size_per_threshold.append(map(len, cluster_map))
+
+        import pylab as plt
+        plt.plot(thresholds, nb_clusters_per_threshold, 'o')
+        plt.show(False)
+
+        means_clusters_size_per_threshold = map(np.mean, clusters_size_per_threshold)
+        stds_clusters_size_per_threshold = map(np.std, clusters_size_per_threshold)
+
+        plt.figure()
+        plt.gca().set_xmargin(0.1)
+        plt.errorbar(thresholds, means_clusters_size_per_threshold, yerr=stds_clusters_size_per_threshold, fmt='o')
+        plt.ticklabel_format(useOffset=False, axis='y')
+        plt.show()
+
+    from dipy.segment.clustering import Cluster
+    def recursive_quickbundles(streamlines, qb, alpha=None):
+        cluster_map = qb.cluster(streamlines)
+        if len(streamlines) == len(cluster_map):
+            return cluster_map.clusters
+
+        clusters = recursive_quickbundles(cluster_map.centroids, qb)
+        if alpha is not None:
+            clusters = remove_clusters_by_size(clusters, alpha=alpha)
+
+        merged_clusters = []
+        for cluster in clusters:
+            merged_cluster = Cluster()
+            for i in cluster.indices:
+                merged_cluster.indices.extend(cluster_map[i].indices)
+            merged_clusters.append(merged_cluster)
+
+        return merged_clusters
+
+    qb = QuickBundles(threshold=5.)
+    merged_clusters = recursive_quickbundles(rstreamlines, qb)
+    for c in merged_clusters:
+        c.refdata = streamlines
+
+    show_clusters_grid_view(merged_clusters)
+    show_clusters(merged_clusters)
+
+
+    merged_clusters = recursive_quickbundles(rstreamlines, qb, alpha=0.)
+    for c in merged_clusters:
+        c.refdata = streamlines
+
+    show_clusters_grid_view(merged_clusters)
+    show_clusters(merged_clusters)
+
+    # clusters = remove_clusters_by_size(merged_clusters, alpha=0)
+    # show_clusters(clusters)
+
+    from ipdb import set_trace as dbg
+    dbg()
+
+    print len(cluster_map)
+    cluster_map.refdata = streamlines
+    show_clusters(cluster_map)
+    #show_clusters_exploded_view(cluster_map, scale=200)
+    show_clusters_grid_view(cluster_map)
+    clusters = remove_clusters_by_size(cluster_map, alpha=0)
+    print len(clusters)
+    show_clusters_grid_view(clusters)
+
+
+def visualize_impact_of_metric(streamlines, bundle_name='af'):
+    """
+    Length
+    """
+    qb = QuickBundles(metric=ArcLengthMetric(), threshold=7.5)
+
+    t0 = time()
+    cluster_map = qb.cluster(streamlines)
+    cluster_map.refdata = streamlines
+    print("QB-Length duration: {:.2f} sec".format(time()-t0))
+
+    makelabel = lambda c: "{:.2f}mm".format(c.centroid[0, 0])
+    show_clusters(cluster_map, fname=bundle_name +'_length_clusters.png')
+    show_clusters_grid_view(cluster_map, makelabel=makelabel, fname=bundle_name +'_length_clusters_grid.png')
 
 
     """
-    MDF
+    Stem
     """
-    clusters = mdf(streamlines, threshold=20., pts=12)
-    show_clusters(clusters)
+    pts = [np.array([p]) for p in chain(*streamlines)]
 
-    """
-    Hausdorff
-    """
-    clusters = hausdorff(streamlines, threshold=20.)
-    show_clusters(clusters)
+    threshold = 10.
+    qb = QuickBundles(metric=SumPointwiseEuclideanMetric(), threshold=threshold)
+    cluster_map = qb.cluster(pts)
+    cluster_map.refdata = pts
+
+    show_stem(cluster_map, stem_radius=threshold, fname=bundle_name +'_stem.png')
 
     return
+    """
+    Winding angle - projected sum curvature - total turning angle projected
+    """
+
+    class WindingAngleFeature(Feature):
+        def infer_shape(self, streamline):
+            return (1, 1)
+
+        def extract(self, streamline):
+            return np.array([[winding(streamline)]])
+
+    class WindingAngleMetric(Metric):
+
+        def __init__(self):
+            super(WindingAngleMetric, self).__init__(WindingAngleFeature())
+
+        def dist(self, w1, w2):
+            return np.abs(w1 - w2)
+
+
+    qb = QuickBundles(metric=WindingAngleMetric(), threshold=50)
+    cluster_map = qb.cluster(streamlines)
+    cluster_map.refdata = streamlines
+
+    t0 = time()
+
+    cluster_map = qb.cluster(streamlines)
+
+    print('Duration %f sec' % (time()-t0, ))
+
+    colormap = np.random.rand(len(cluster_map), 3)
+
+    show_clusters(streamlines, cluster_map.clusters, colormap,
+                  fname=bundle_name + '_winding_angle.png')
+
+    print('Number of clusters %d' % (len(cluster_map),) )
+    print(map(len, cluster_map))
+    print(np.squeeze(cluster_map.centroids))
+
+
+def bundle_specific_pruning(streamlines, bundle_name='af'):
+    # show_streamlines(streamlines, fname=bundle_name + '_initial.png')
 
     """
     Length
     """
+    qb = QuickBundles(metric=ArcLengthMetric(), threshold=7.5)
+
+    t0 = time()
+    cluster_map = qb.cluster(streamlines)
+    cluster_map.refdata = streamlines
+    print("QB-Length duration: {:.2f} sec".format(time()-t0))
+
+    #show_clusters_exploded_view(cluster_map, fname=bundle_name + '_clusters_exploded.png')
+    #clusters = remove_clusters_by_length(cluster_map, low=50, high=250)
+
+    # show_clusters(cluster_map, fname=bundle_name + '_length_clusters.png')
+    # show_clusters_exploded_view(cluster_map, fname=bundle_name + '_length_clusters_exploded.png')
+    # show_clusters_grid_view(cluster_map, fname=bundle_name + '_length_clusters_exploded.png')
+
+    """
+    MDF
+    """
+    cluster_map = mdf(streamlines, threshold=5., pts=12)
+
+    print len(cluster_map)
+    cluster_map.refdata = streamlines
+    show_clusters(cluster_map)
+    #show_clusters_exploded_view(cluster_map, scale=200)
+    show_clusters_grid_view(cluster_map)
+    clusters = remove_clusters_by_size(cluster_map, alpha=0)
+    print len(clusters)
+    show_clusters_grid_view(clusters)
+
+    return
+
     qb = QuickBundles(metric=ArcLengthMetric(), threshold=20)
 
     t0 = time()
@@ -538,6 +815,30 @@ def run_bundle_specific_pruning():
     bundle_specific_pruning(streamlines)
 
 
+def run_visualize_impact_of_metric(bundle_name):
+    #dname = '/home/eleftherios/Data/fancy_data/2013_03_26_Emmanuelle_Renauld/TRK_files/'
+    dname = '/home/marc/research/data/streamlines/ismrm/'
+    fname = dname + 'bundles_' + bundle_name + '.trk'
+
+    streams, hdr = tv.read(fname, points_space='rasmm')
+    streamlines = [i[0] for i in streams]
+
+    visualize_impact_of_metric(streamlines, bundle_name)
+
+def run_bundle_specific_stats():
+    #dname = '/home/eleftherios/Data/fancy_data/2013_03_26_Emmanuelle_Renauld/TRK_files/'
+    dname = '/home/marc/research/data/streamlines/ismrm/'
+    fname = dname + 'bundles_af.right.trk'
+    #fname = dname + 'bundles_cc_1.trk'
+    #fname = dname + 'bundles_ifof.right.trk'
+
+    streams, hdr = tv.read(fname, points_space='rasmm')
+
+    streamlines = [i[0] for i in streams]
+
+    bundle_specific_stats(streamlines)
+
+
 def run_full_brain_pipeline():
     #dname = '/home/eleftherios/Data/fancy_data/2013_02_26_Patrick_Delattre/'
     dname = '/home/marc/research/data/streamlines/ismrm/'
@@ -555,9 +856,10 @@ def run_full_brain_pipeline():
 
     full_brain_pipeline(streamlines)
 
+
 if __name__ == '__main__':
     np.random.seed(43)
     #run_full_brain_pipeline()
-    run_bundle_specific_pruning()
-
-
+    #run_bundle_specific_pruning()
+    #run_bundle_specific_stats()
+    run_visualize_impact_of_metric('af.right')
