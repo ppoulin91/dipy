@@ -25,6 +25,7 @@ from dipy.segment.metric import SumPointwiseEuclideanMetric
 from dipy.tracking.metrics import winding
 from dipy.segment.metric import MidpointFeature
 from dipy.viz.axycolor import distinguishable_colormap
+from dipy.segment.quickbundles import bundles_distances_mdf
 
 
 def get_bounding_box(streamlines):
@@ -64,6 +65,49 @@ class LeftRightMiddleMetric(Metric):
     def dist(self, feature1, feature2):
 
         return 1 - np.float32(feature1 == feature2)
+
+
+def bundle_adjacency(dtracks0, dtracks1, dist):
+
+
+    d01=bundles_distances_mdf(dtracks0,dtracks1)
+
+    pair12=[]
+    solo1=[]
+
+    for i in range(len(dtracks0)):
+
+        if np.min(d01[i,:]) < dist:
+
+            j=np.argmin(d01[i,:])
+
+            pair12.append((i,j))
+
+        else:
+            solo1.append(dtracks0[i])
+
+    pair12=np.array(pair12)
+
+
+    pair21=[]
+
+    solo2=[]
+    for i in range(len(dtracks1)):
+
+        if np.min(d01[:,i]) < dist:
+
+            j=np.argmin(d01[:,i])
+
+            pair21.append((i,j))
+
+        else:
+            solo2.append(dtracks1[i])
+
+
+    pair21=np.array(pair21)
+
+
+    return 0.5*(len(pair12)/np.float(len(dtracks0))+len(pair21)/np.float(len(dtracks1)))
 
 
 def identify_left_right_middle_clusters(clusters):
