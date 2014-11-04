@@ -46,7 +46,6 @@ ind_buffer = []
 tmp_ren = None
 
 if have_vtk:
-
     version = vtk.vtkVersion.GetVTKSourceVersion().split(' ')[-1]
     major_version = vtk.vtkVersion.GetVTKMajorVersion()
 

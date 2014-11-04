@@ -14,9 +14,9 @@ import numpy as np
 from nibabel import trackvis as tv
 from dipy.tracking.streamline import set_number_of_points, center_streamlines
 from dipy.segment.clustering import QuickBundles
-from dipy.segment.metric import Metric, Feature
+from dipy.segment.metric import Metric, Feature, distance_matrix
 from dipy.segment.clustering import Cluster
-from dipy.segment.metric import HausdorffMetric, ArcLengthMetric
+from dipy.segment.metric import ArcLengthMetric, MinimumAverageDirectFlipMetric
 from dipy.viz import fvtk
 from dipy.viz.colormap import line_colors
 from time import time
@@ -26,6 +26,7 @@ from dipy.tracking.metrics import winding
 from dipy.segment.metric import MidpointFeature
 from dipy.viz.axycolor import distinguishable_colormap
 from dipy.segment.quickbundles import bundles_distances_mdf
+
 
 
 def get_bounding_box(streamlines):
@@ -67,46 +68,32 @@ class LeftRightMiddleMetric(Metric):
         return 1 - np.float32(feature1 == feature2)
 
 
-def bundle_adjacency(dtracks0, dtracks1, dist):
-
-
-    d01=bundles_distances_mdf(dtracks0,dtracks1)
+def bundle_adjacency(dtracks0, dtracks1, threshold):
+    d01 = distance_matrix(MinimumAverageDirectFlipMetric(), dtracks0, dtracks1)
+    #d01=bundles_distances_mdf(dtracks0,dtracks1)
 
     pair12=[]
     solo1=[]
 
     for i in range(len(dtracks0)):
-
-        if np.min(d01[i,:]) < dist:
-
+        if np.min(d01[i,:]) < threshold:
             j=np.argmin(d01[i,:])
-
             pair12.append((i,j))
-
         else:
             solo1.append(dtracks0[i])
 
     pair12=np.array(pair12)
-
-
     pair21=[]
 
     solo2=[]
     for i in range(len(dtracks1)):
-
-        if np.min(d01[:,i]) < dist:
-
+        if np.min(d01[:,i]) < threshold:
             j=np.argmin(d01[:,i])
-
             pair21.append((i,j))
-
         else:
             solo2.append(dtracks1[i])
 
-
     pair21=np.array(pair21)
-
-
     return 0.5*(len(pair12)/np.float(len(dtracks0))+len(pair21)/np.float(len(dtracks1)))
 
 
@@ -383,8 +370,6 @@ def recursive_quickbundles(streamlines, qb, alpha=None):
         return cluster_map.clusters
 
     clusters = recursive_quickbundles(cluster_map.centroids, qb)
-    if alpha is not None:
-        clusters = remove_clusters_by_size(clusters, alpha=alpha)
 
     merged_clusters = []
     for cluster in clusters:
@@ -393,7 +378,11 @@ def recursive_quickbundles(streamlines, qb, alpha=None):
             merged_cluster.indices.extend(cluster_map[i].indices)
         merged_clusters.append(merged_cluster)
 
+    if alpha is not None:
+        merged_clusters = remove_clusters_by_size(merged_clusters, alpha=alpha)
+
     return merged_clusters
+
 
 def mdf(streamlines, threshold, pts=None):
     if pts is not None:
@@ -536,6 +525,8 @@ def bundle_specific_stats(streamlines, bundle_name='af'):
         plt.show()
 
 
+    plot_nb_clusters_vs_threshold(rstreamlines)
+
     qb = QuickBundles(threshold=5.)
     merged_clusters = recursive_quickbundles(rstreamlines, qb)
     for c in merged_clusters:
@@ -569,6 +560,8 @@ def bundle_specific_stats(streamlines, bundle_name='af'):
 
 
 def visualize_impact_of_metric(streamlines, bundle_name='af'):
+    show_streamlines(streamlines, fname=bundle_name + '_initial.png')
+
     """
     Length
     """
@@ -664,7 +657,13 @@ def bundle_pruning(streamlines, bundle_name='af'):
     show_clusters(clusters, fname=bundle_name + '_mdf_clusters_pruned.png')
     show_clusters_grid_view(clusters, makelabel=makelabel, fname=bundle_name + '_mdf_clusters_grid_pruned.png')
 
+    # new_streamlines = list(chain(*clusters))
+    # cluster_map1 = qb.cluster(new_streamlines)
+    # ordering = range(len(new_streamlines))
+    # np.random.shuffle(ordering)
+    # cluster_map2 = qb.clusters(new_streamlines, ordering=ordering)
 
+    #print bundle_adjacency(cluster_map1.centroids, cluster_map2.centroids)
     return
 
     """
@@ -726,15 +725,15 @@ def run_full_brain_pipeline():
 
     # Load streamlines
     import os
-    if not os.path.isfile('data.npy'):
-        streams, hdr = tv.read(fname, points_space='rasmm')
-        streamlines = [i[0] for i in streams]
-        streamlines = streamlines[:1000]
-        np.save('data.npy', streamlines)
-    else:
-        streamlines = np.load('data.npy')
+    #if not os.path.isfile('data.npy'):
+    streams, hdr = tv.read(fname, points_space='rasmm')
+    streamlines = [i[0] for i in streams]
+    streamlines = streamlines[:10000]
+    np.save('data.npy', streamlines)
+    #else:
+    #    streamlines = np.load('data.npy')
 
-    #full_brain_pipeline(streamlines)
+    full_brain_pipeline(streamlines)
 
 
 if __name__ == '__main__':
@@ -743,7 +742,7 @@ if __name__ == '__main__':
     dname = '/home/marc/research/data/streamlines/ismrm/'
 
     #run_visualize_impact_of_metric(dname, 'af.right')
+    #run_bundle_pruning(dname, 'af.right')
     #run_full_brain_pipeline()
 
-    run_bundle_pruning(dname, 'af.right')
-    #run_bundle_specific_stats()
+    run_bundle_specific_stats()

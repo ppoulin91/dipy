@@ -14,7 +14,7 @@ from dipy.segment.metricspeed import (Metric,
                                       ArcLengthMetric)
 
 from dipy.segment.metricspeed import dist
-# from dipy.segment.metricspeed import distance_matrix
+from dipy.segment.metricspeed import distance_matrix
 
 
 def mdf(s1, s2):
