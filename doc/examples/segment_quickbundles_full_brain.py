@@ -15,6 +15,7 @@ from nibabel import trackvis as tv
 from dipy.tracking.streamline import set_number_of_points, center_streamlines
 from dipy.segment.clustering import QuickBundles
 from dipy.segment.metric import Metric, Feature
+from dipy.segment.clustering import Cluster
 from dipy.segment.metric import HausdorffMetric, ArcLengthMetric
 from dipy.viz import fvtk
 from dipy.viz.colormap import line_colors
@@ -24,6 +25,17 @@ from dipy.segment.metric import SumPointwiseEuclideanMetric
 from dipy.tracking.metrics import winding
 from dipy.segment.metric import MidpointFeature
 from dipy.viz.axycolor import distinguishable_colormap
+
+
+def get_bounding_box(streamlines):
+    box_min = np.array([np.inf, np.inf, np.inf])
+    box_max = -np.array([np.inf, np.inf, np.inf])
+
+    for s in streamlines:
+        box_min = np.minimum(box_min, np.min(s, axis=0))
+        box_max = np.maximum(box_max, np.max(s, axis=0))
+
+    return box_min, box_max
 
 
 class EndpointsXFeature(Feature):
@@ -180,7 +192,8 @@ def show_stem(clusters, stem_radius, colormap=None, cam_pos=None,
         colormap = distinguishable_colormap(bg=bg)
 
     ren=fvtk.ren()
-    #pts = np.squeeze(np.array(pts))
+    fvtk.clear(ren)
+    ren.SetBackground(*bg)
     cluster_sizes = map(len, clusters)
     maxc = np.max(cluster_sizes)
 
@@ -200,17 +213,6 @@ def show_stem(clusters, stem_radius, colormap=None, cam_pos=None,
         fvtk.record(ren, cam_pos=cam_pos, cam_focal=cam_focal, cam_view=cam_view,
                     out_path=fname, path_numbering=False, n_frames=1, az_ang=10,
                     magnification=magnification, size=size, verbose=True)
-
-
-def get_bounding_box(streamlines):
-    box_min = np.array([np.inf, np.inf, np.inf])
-    box_max = -np.array([np.inf, np.inf, np.inf])
-
-    for s in streamlines:
-        box_min = np.minimum(box_min, np.min(s, axis=0))
-        box_max = np.maximum(box_max, np.max(s, axis=0))
-
-    return box_min, box_max
 
 
 def show_clusters_grid_view(clusters, colormap=None, makelabel=None,
@@ -331,84 +333,23 @@ def remove_clusters_by_length(clusters, low, high):
     return filter(by_length, clusters)
 
 
-def streamlines_from_indices_deprecated(streamlines, indices):
-    return [streamlines[i] for i in indices]
-
-
-def qb_mdf(streamlines, threshold, disp=False):
-
-    qb = QuickBundles(threshold=threshold)
-
-    t0 = time()
-
+def recursive_quickbundles(streamlines, qb, alpha=None):
     cluster_map = qb.cluster(streamlines)
+    if len(streamlines) == len(cluster_map):
+        return cluster_map.clusters
 
-    print('Duration %f sec' % (time()-t0, ))
+    clusters = recursive_quickbundles(cluster_map.centroids, qb)
+    if alpha is not None:
+        clusters = remove_clusters_by_size(clusters, alpha=alpha)
 
-    if disp:
+    merged_clusters = []
+    for cluster in clusters:
+        merged_cluster = Cluster()
+        for i in cluster.indices:
+            merged_cluster.indices.extend(cluster_map[i].indices)
+        merged_clusters.append(merged_cluster)
 
-        clusters = cluster_map.clusters
-        centroids = cluster_map.centroids
-
-        colormap = np.random.rand(len(clusters), 3)
-        #colormap = line_colors(centroids)
-
-        show_streamlines(streamlines)
-        show_centroids(centroids, colormap , clusters)
-
-        #show_centroids(centroids, colormap, clusters)
-        show_clusters(streamlines, clusters, colormap)
-
-    return cluster_map
-
-
-def qb_pts(streamlines, threshold=10., cam_pos=None,
-           cam_focal=None, cam_view=None,
-           magnification=1, fname=None, size=(900, 900)):
-
-    pts = [np.array([p]) for p in chain(*streamlines)]
-
-    qb = QuickBundles(metric=SumPointwiseEuclideanMetric(),
-                      threshold=threshold)
-    cluster_map = qb.cluster(pts)
-
-    ren=fvtk.ren()
-    pts = np.squeeze(np.array(pts))
-    cluster_sizes = map(len, cluster_map)
-    maxc = np.max(cluster_sizes)
-
-    colormap = np.random.rand(len(cluster_map), 3)
-
-    for cluster, c in zip(cluster_map, colormap):
-        fvtk.add(ren, fvtk.dots(pts[cluster.indices], c, opacity=0.2))
-
-        #fvtk.add(ren, fvtk.point(centroid, fvtk.colors.green,
-        #                         point_radius=5 * cluster_sizes[i]/float(maxc),
-        #                         theta=3, phi=3))
-
-        if len(cluster) == maxc:
-            fvtk.add(ren, fvtk.point(cluster.centroid, c, opacity=0.5,
-                                     point_radius=threshold))
-
-    fvtk.show(ren, size=size)
-    fvtk.record(ren, cam_pos=cam_pos, cam_focal=cam_focal, cam_view=cam_view,
-                out_path=fname, path_numbering=False, n_frames=1, az_ang=10,
-                magnification=magnification, size=size, verbose=True)
-
-
-def remove_outlier_clusters(clusters, alpha=2):
-    last_nb_clusters = None
-    while last_nb_clusters != len(clusters):
-        last_nb_clusters = len(clusters)
-        sizes = np.array(map(len, clusters))
-        mean_size = sizes.mean()
-        std_size = sizes.std()
-
-        by_size = lambda c: len(c) >= mean_size - alpha*std_size
-        clusters = filter(by_size, clusters)
-
-    return clusters
-
+    return merged_clusters
 
 def mdf(streamlines, threshold, pts=None):
     if pts is not None:
@@ -423,21 +364,8 @@ def mdf(streamlines, threshold, pts=None):
     return cluster_map
 
 
-def hausdorff(streamlines, threshold, pts=None):
-    if pts is not None:
-        streamlines = set_number_of_points(streamlines, pts)
-
-    qb = QuickBundles(metric=HausdorffMetric(), threshold=threshold)
-
-    t0 = time()
-    cluster_map = qb.cluster(streamlines)
-    print("QB-Hausdorff duration: {:.2f} sec".format(time()-t0))
-
-    return cluster_map
-
-
 def full_brain_pipeline(streamlines):
-    #show_streamlines(streamlines, fname='initial_full_brain.png')
+    show_streamlines(streamlines, fname='initial_full_brain.png')
 
     """
     Length
@@ -563,24 +491,6 @@ def bundle_specific_stats(streamlines, bundle_name='af'):
         plt.ticklabel_format(useOffset=False, axis='y')
         plt.show()
 
-    from dipy.segment.clustering import Cluster
-    def recursive_quickbundles(streamlines, qb, alpha=None):
-        cluster_map = qb.cluster(streamlines)
-        if len(streamlines) == len(cluster_map):
-            return cluster_map.clusters
-
-        clusters = recursive_quickbundles(cluster_map.centroids, qb)
-        if alpha is not None:
-            clusters = remove_clusters_by_size(clusters, alpha=alpha)
-
-        merged_clusters = []
-        for cluster in clusters:
-            merged_cluster = Cluster()
-            for i in cluster.indices:
-                merged_cluster.indices.extend(cluster_map[i].indices)
-            merged_clusters.append(merged_cluster)
-
-        return merged_clusters
 
     qb = QuickBundles(threshold=5.)
     merged_clusters = recursive_quickbundles(rstreamlines, qb)
@@ -637,16 +547,16 @@ def visualize_impact_of_metric(streamlines, bundle_name='af'):
 
     threshold = 10.
     qb = QuickBundles(metric=SumPointwiseEuclideanMetric(), threshold=threshold)
+    t0 = time()
     cluster_map = qb.cluster(pts)
     cluster_map.refdata = pts
+    print("QB-Stem duration: {:.2f} sec".format(time()-t0))
 
     show_stem(cluster_map, stem_radius=threshold, fname=bundle_name +'_stem.png')
 
-    return
     """
     Winding angle - projected sum curvature - total turning angle projected
     """
-
     class WindingAngleFeature(Feature):
         def infer_shape(self, streamline):
             return (1, 1)
@@ -664,81 +574,58 @@ def visualize_impact_of_metric(streamlines, bundle_name='af'):
 
 
     qb = QuickBundles(metric=WindingAngleMetric(), threshold=50)
-    cluster_map = qb.cluster(streamlines)
-    cluster_map.refdata = streamlines
-
-    t0 = time()
-
-    cluster_map = qb.cluster(streamlines)
-
-    print('Duration %f sec' % (time()-t0, ))
-
-    colormap = np.random.rand(len(cluster_map), 3)
-
-    show_clusters(streamlines, cluster_map.clusters, colormap,
-                  fname=bundle_name + '_winding_angle.png')
-
-    print('Number of clusters %d' % (len(cluster_map),) )
-    print(map(len, cluster_map))
-    print(np.squeeze(cluster_map.centroids))
-
-
-def bundle_specific_pruning(streamlines, bundle_name='af'):
-    # show_streamlines(streamlines, fname=bundle_name + '_initial.png')
-
-    """
-    Length
-    """
-    qb = QuickBundles(metric=ArcLengthMetric(), threshold=7.5)
 
     t0 = time()
     cluster_map = qb.cluster(streamlines)
     cluster_map.refdata = streamlines
-    print("QB-Length duration: {:.2f} sec".format(time()-t0))
+    print("QB-Curvature duration: {:.2f} sec".format(time()-t0))
 
-    #show_clusters_exploded_view(cluster_map, fname=bundle_name + '_clusters_exploded.png')
-    #clusters = remove_clusters_by_length(cluster_map, low=50, high=250)
+    makelabel = lambda c: "{:.2f}o".format(c.centroid[0, 0])
+    show_clusters(cluster_map, fname=bundle_name +'_curvature_clusters.png')
+    show_clusters_grid_view(cluster_map, makelabel=makelabel, fname=bundle_name +'_curvature_clusters_grid.png')
 
-    # show_clusters(cluster_map, fname=bundle_name + '_length_clusters.png')
-    # show_clusters_exploded_view(cluster_map, fname=bundle_name + '_length_clusters_exploded.png')
-    # show_clusters_grid_view(cluster_map, fname=bundle_name + '_length_clusters_exploded.png')
+
+def bundle_pruning(streamlines, bundle_name='af'):
+    show_streamlines(streamlines, fname=bundle_name + '_initial.png')
 
     """
     MDF
     """
-    cluster_map = mdf(streamlines, threshold=5., pts=12)
+    rstreamlines = set_number_of_points(streamlines, 12)
 
-    print len(cluster_map)
+    threshold = 5.
+    cluster_map = mdf(rstreamlines, threshold=threshold)
     cluster_map.refdata = streamlines
-    show_clusters(cluster_map)
-    #show_clusters_exploded_view(cluster_map, scale=200)
-    show_clusters_grid_view(cluster_map)
-    clusters = remove_clusters_by_size(cluster_map, alpha=0)
-    print len(clusters)
-    show_clusters_grid_view(clusters)
+
+    print("Number of bundles: {0}".format(len(cluster_map)))
+    sizes = map(len, cluster_map)
+    print "Sizes: {:.2f} ± {:.2f}".format(np.mean(sizes), np.std(sizes))
+
+    makelabel = lambda c: "{}".format(len(c))
+    show_centroids(cluster_map, fname=bundle_name + '_mdf_centroids.png')
+    show_clusters(cluster_map, fname=bundle_name + '_mdf_clusters.png')
+    show_clusters_grid_view(cluster_map, makelabel=makelabel, fname=bundle_name + '_mdf_clusters_grid.png')
+
+    qb = QuickBundles(threshold=threshold)
+    clusters = recursive_quickbundles(rstreamlines, qb, alpha=0.)
+    for c in clusters:
+        c.refdata = streamlines
+
+    print("Number of bundles: {0}".format(len(clusters)))
+    sizes = map(len, clusters)
+    print "Sizes: {:.2f} ± {:.2f}".format(np.mean(sizes), np.std(sizes))
+
+    makelabel = lambda c: "{}".format(len(c))
+    #show_centroids(clusters, fname=bundle_name + '_mdf_centroids_pruned.png')
+    show_clusters(clusters, fname=bundle_name + '_mdf_clusters_pruned.png')
+    show_clusters_grid_view(clusters, makelabel=makelabel, fname=bundle_name + '_mdf_clusters_grid_pruned.png')
+
 
     return
-
-    qb = QuickBundles(metric=ArcLengthMetric(), threshold=20)
-
-    t0 = time()
-
-    cluster_map = qb.cluster(streamlines)
-
-    print('QB-Length duration %f sec' % (time()-t0, ))
-
-    colormap = np.random.rand(len(cluster_map.clusters), 3)
-
-    show_clusters(streamlines, cluster_map.clusters, colormap, fname=bundle_name + '_length.png')
-
-    print('Number of clusters %d' % (len(cluster_map),) )
-
-    # TODO Historgram of lengths of streamlines
 
     """
     Midpoint
     """
-
     metric = SumPointwiseEuclideanMetric(MidpointFeature())
 
     qb = QuickBundles(metric=metric, threshold=15.)
@@ -757,73 +644,22 @@ def bundle_specific_pruning(streamlines, bundle_name='af'):
 
     # TODO separate visualization clusters (IronMan stype - explode view)
 
-    """
-    Stem Detection
-    """
-    qb_pts(streamlines, threshold=10., fname=bundle_name + '_stem.png')
 
-
-    """
-    Winding angle - projected sum curvature - total turning angle projected
-    """
-
-    class WindingAngleFeature(Feature):
-        def infer_shape(self, streamline):
-            return (1, 1)
-
-        def extract(self, streamline):
-            return np.array([[winding(streamline)]])
-
-    class WindingAngleMetric(Metric):
-
-        def __init__(self):
-            super(WindingAngleMetric, self).__init__(WindingAngleFeature())
-
-        def dist(self, w1, w2):
-            return np.abs(w1 - w2)
-
-    qb = QuickBundles(metric=WindingAngleMetric(), threshold=50)
-
-    t0 = time()
-
-    cluster_map = qb.cluster(streamlines)
-
-    print('Duration %f sec' % (time()-t0, ))
-
-    colormap = np.random.rand(len(cluster_map), 3)
-
-    show_clusters(streamlines, cluster_map.clusters, colormap,
-                  fname=bundle_name + '_winding_angle.png')
-
-    print('Number of clusters %d' % (len(cluster_map),) )
-    print(map(len, cluster_map))
-    print(np.squeeze(cluster_map.centroids))
-
-
-def run_bundle_specific_pruning():
-    #dname = '/home/eleftherios/Data/fancy_data/2013_03_26_Emmanuelle_Renauld/TRK_files/'
-    dname = '/home/marc/research/data/streamlines/ismrm/'
-    fname = dname + 'bundles_af.right.trk'
-    #fname = dname + 'bundles_ifof.right.trk'
-    #fname = dname + 'bundles_af.right.trk'
-
-    streams, hdr = tv.read(fname, points_space='rasmm')
-
-    streamlines = [i[0] for i in streams]
-    streamlines = streamlines[:1000]
-
-    bundle_specific_pruning(streamlines)
-
-
-def run_visualize_impact_of_metric(bundle_name):
-    #dname = '/home/eleftherios/Data/fancy_data/2013_03_26_Emmanuelle_Renauld/TRK_files/'
-    dname = '/home/marc/research/data/streamlines/ismrm/'
+def run_bundle_pruning(dname, bundle_name):
     fname = dname + 'bundles_' + bundle_name + '.trk'
+    streams, hdr = tv.read(fname, points_space='rasmm')
+    streamlines = [i[0] for i in streams]
 
+    bundle_pruning(streamlines)
+
+
+def run_visualize_impact_of_metric(dname, bundle_name):
+    fname = dname + 'bundles_' + bundle_name + '.trk'
     streams, hdr = tv.read(fname, points_space='rasmm')
     streamlines = [i[0] for i in streams]
 
     visualize_impact_of_metric(streamlines, bundle_name)
+
 
 def run_bundle_specific_stats():
     #dname = '/home/eleftherios/Data/fancy_data/2013_03_26_Emmanuelle_Renauld/TRK_files/'
@@ -854,12 +690,16 @@ def run_full_brain_pipeline():
     else:
         streamlines = np.load('data.npy')
 
-    full_brain_pipeline(streamlines)
+    #full_brain_pipeline(streamlines)
 
 
 if __name__ == '__main__':
     np.random.seed(43)
+    #dname = '/home/eleftherios/Data/fancy_data/2013_03_26_Emmanuelle_Renauld/TRK_files/'
+    dname = '/home/marc/research/data/streamlines/ismrm/'
+
+    #run_visualize_impact_of_metric(dname, 'af.right')
     #run_full_brain_pipeline()
-    #run_bundle_specific_pruning()
+
+    run_bundle_pruning(dname, 'af.right')
     #run_bundle_specific_stats()
-    run_visualize_impact_of_metric('af.right')
