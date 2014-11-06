@@ -26,6 +26,149 @@ from dipy.tracking.metrics import winding
 from dipy.segment.metric import MidpointFeature
 from dipy.viz.axycolor import distinguishable_colormap
 from dipy.segment.quickbundles import bundles_distances_mdf
+from scipy.special import ndtri
+
+
+def quickbundles_with_merging(streamlines, qb, ordering=None):
+    cluster_map = qb.cluster(streamlines, ordering=ordering)
+    if len(streamlines) == len(cluster_map):
+        return cluster_map.clusters
+
+    clusters = quickbundles_with_merging(cluster_map.centroids, qb, None)
+
+    merged_clusters = []
+    for cluster in clusters:
+        merged_cluster = Cluster()
+        merged_cluster.refdata = cluster_map.refdata
+        for i in cluster.indices:
+            merged_cluster.indices.extend(cluster_map[i].indices)
+        merged_clusters.append(merged_cluster)
+
+    return merged_clusters
+
+
+def automatic_outliers_removal(streamlines, qb, nb_samplings=100):
+    start_time = time()
+    cluster_maps = []
+    cluster_sizes_per_ordering = []
+    ordering = range(len(streamlines))
+    for i in range(nb_samplings):
+        np.random.shuffle(ordering)
+        #clusters = quickbundles_with_merging(streamlines, qb, ordering)
+        clusters = qb.cluster(streamlines, ordering=ordering)
+        cluster_maps.append(clusters)
+        cluster_sizes_per_ordering.append(map(len, clusters))
+
+    #nb_clusters_per_ordering = np.array(map(len, cluster_maps))
+    clusters_size_per_streamline = np.zeros((len(streamlines), nb_samplings))
+    for i, cluster_map in enumerate(cluster_maps):
+        for cluster in cluster_map:
+            clusters_size_per_streamline[cluster.indices, i] += len(cluster)
+
+    print "{} qb done in {:.2f} sec on {} streamlines".format(nb_samplings, time()-start_time, len(streamlines))
+
+    # Compute confidence interval on mean cluster's size for each streamlines
+    alpha = 0.05
+    confidence_level = 1 - alpha
+    sterror_factor = ndtri(confidence_level)
+
+    mean_size_per_streamline = np.mean(clusters_size_per_streamline, axis=1)
+    sterror = np.std(clusters_size_per_streamline, axis=1, ddof=1) / np.sqrt(nb_samplings)
+    print "max sterror", sterror.min(), sterror.max()
+    mean_size_bounds_per_streamline = np.array((mean_size_per_streamline - sterror_factor*sterror,
+                                                mean_size_per_streamline + sterror_factor*sterror)).T
+
+    mean_size_per_ordering = np.array([np.mean(cluster_sizes) for cluster_sizes in cluster_sizes_per_ordering])
+    sterror = np.std(mean_size_per_ordering, ddof=1) / np.sqrt(nb_samplings)
+    mean_size_bound = (np.mean(mean_size_per_ordering) - sterror_factor*sterror,
+                       np.mean(mean_size_per_ordering) + sterror_factor*sterror)
+
+    threshold = mean_size_bound[0]
+    indices = np.arange(len(streamlines))
+
+    cluster_outliers = Cluster()
+    cluster_outliers.indices = indices[mean_size_bounds_per_streamline[:, 0] <= threshold]
+    cluster_outliers.refdata = streamlines
+
+    cluster_rest = Cluster()
+    cluster_rest.indices = indices[mean_size_bounds_per_streamline[:, 0] > threshold]
+    cluster_rest.refdata = streamlines
+
+    show_clusters_grid_view([cluster_outliers, cluster_rest])
+
+    #Redo a QB and show clusters
+    rest_streamlines = list(cluster_rest)
+    cmap = quickbundles_with_merging(rest_streamlines, qb)
+    #cmap.refdata = rest_streamlines
+    makelabel = lambda c: "{}".format(len(c))
+    show_clusters_grid_view(cmap, makelabel=makelabel)
+
+    outlier_streamlines = list(cluster_outliers)
+    cmap = quickbundles_with_merging(outlier_streamlines, qb)
+    #cmap.refdata = outlier_streamlines
+    makelabel = lambda c: "{}".format(len(c))
+    show_clusters_grid_view(cmap, makelabel=makelabel)
+
+    from ipdb import set_trace as dbg
+    dbg()
+
+    return
+
+
+    import pylab as plt
+    plt.hist(np.mean(clusters_size_per_streamline, axis=1), bins=clusters_size_per_streamline.max())
+
+    t = np.sqrt(nb_samplings) * np.mean(clusters_size_per_streamline, axis=1) / np.var(clusters_size_per_streamline, axis=1)
+    plt.plot(t, 'o')
+    #plt.plot(np.mean(clusters_size_per_streamline, axis=1), 'o')
+    plt.show()
+
+    threshold = 5
+    indices = np.arange(len(streamlines))
+    A = np.mean(clusters_size_per_streamline, axis=1)
+    cluster_outliers = Cluster()
+    cluster_outliers.indices = indices[A <= threshold]
+    cluster_outliers.refdata = streamlines
+
+    cluster_rest = Cluster()
+    cluster_rest.indices = indices[A > threshold]
+    cluster_rest.refdata = streamlines
+
+    plt.hist(nb_clusters_per_ordering, bins=nb_clusters_per_ordering.max());plt.show()
+
+    size_max = int(clusters_size_per_streamline.max())
+    for sizes in clusters_size_per_streamline: plt.hist(sizes, bins=range(1, size_max+1));plt.show()
+    for sizes in clusters_size_per_streamline.T: plt.hist(sizes, bins=range(1, size_max+1));plt.show()
+
+    mean_size_per_streamlines = np.mean(clusters_size_per_streamline, axis=1)
+    std_size_per_streamlines = np.std(clusters_size_per_streamline, axis=1)
+    indices = np.argsort(mean_size_per_streamlines)
+
+    plt.figure()
+    plt.gca().set_xmargin(0.1)
+    plt.errorbar(range(len(mean_size_per_streamlines)), mean_size_per_streamlines[indices], yerr=std_size_per_streamlines[indices], fmt='o')
+    plt.ticklabel_format(useOffset=False, axis='y')
+    plt.show()
+
+    plt.plot(sort(np.mean(clusters_size_per_streamline, axis=1)), 'o'); plt.show()
+
+    plt.hist(np.mean(clusters_size_per_streamline, axis=1), bins=range(1, size_max+1)); plt.show()
+    plt.hist(np.std(clusters_size_per_streamline, axis=1), bins=range(1, size_max+1)); plt.show()
+    plt.hist(np.mean(clusters_size_per_streamline, axis=0), bins=range(1, size_max+1)); plt.show()
+
+    #hists = [np.histogram(sizes, bins=size_max) for sizes in cluster_size_per_ordering]
+    #plt.hist(list(chain(*cluster_size_per_ordering)), bins=size_max); plt.show()
+
+    from ipdb import set_trace as dbg
+    dbg()
+
+    rest_streamlines = list(cluster_rest)
+    cmap = qb.cluster(rest_streamlines)
+    cmap.refdata = rest_streamlines
+    makelabel = lambda c: "{}".format(len(c))
+    show_clusters_grid_view(cmap, makelabel=makelabel)
+
+    show_clusters_grid_view([cluster_outliers, cluster_rest])
 
 
 
@@ -712,10 +855,13 @@ def run_bundle_specific_stats():
     #fname = dname + 'bundles_ifof.right.trk'
 
     streams, hdr = tv.read(fname, points_space='rasmm')
-
     streamlines = [i[0] for i in streams]
 
-    bundle_specific_stats(streamlines)
+    #bundle_specific_stats(streamlines)
+
+    rstreamlines = set_number_of_points(streamlines, 12)
+    qb = QuickBundles(threshold=5.)
+    automatic_outliers_removal(rstreamlines, qb, nb_samplings=100)
 
 
 def run_full_brain_pipeline():
@@ -725,13 +871,13 @@ def run_full_brain_pipeline():
 
     # Load streamlines
     import os
-    #if not os.path.isfile('data.npy'):
-    streams, hdr = tv.read(fname, points_space='rasmm')
-    streamlines = [i[0] for i in streams]
-    streamlines = streamlines[:10000]
-    np.save('data.npy', streamlines)
-    #else:
-    #    streamlines = np.load('data.npy')
+    if not os.path.isfile('data.npy'):
+        streams, hdr = tv.read(fname, points_space='rasmm')
+        streamlines = [i[0] for i in streams]
+        streamlines = streamlines[:10000]
+        np.save('data.npy', streamlines)
+    else:
+       streamlines = np.load('data.npy')
 
     full_brain_pipeline(streamlines)
 
