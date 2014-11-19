@@ -202,12 +202,13 @@ class EndpointsXFeature(Feature):
 
 
 class LeftRightMiddleMetric(Metric):
-
     def __init__(self):
         super(LeftRightMiddleMetric, self).__init__(EndpointsXFeature())
 
-    def dist(self, feature1, feature2):
+    def compatible(self, shape1, shape2):
+        return shape1 == shape2
 
+    def dist(self, feature1, feature2):
         return 1 - np.float32(feature1 == feature2)
 
 
@@ -800,13 +801,15 @@ def bundle_pruning(streamlines, bundle_name='af'):
     show_clusters(clusters, fname=bundle_name + '_mdf_clusters_pruned.png')
     show_clusters_grid_view(clusters, makelabel=makelabel, fname=bundle_name + '_mdf_clusters_grid_pruned.png')
 
-    # new_streamlines = list(chain(*clusters))
-    # cluster_map1 = qb.cluster(new_streamlines)
-    # ordering = range(len(new_streamlines))
-    # np.random.shuffle(ordering)
-    # cluster_map2 = qb.clusters(new_streamlines, ordering=ordering)
+    ordering = list(chain(*[c.indices for c in clusters]))
+    cluster_map1 = qb.cluster(rstreamlines, ordering=ordering, refdata=streamlines)
+    np.random.shuffle(ordering)
+    cluster_map2 = qb.clusters(rstreamlines, ordering=ordering, refdata=streamlines)
 
-    #print bundle_adjacency(cluster_map1.centroids, cluster_map2.centroids)
+    D = bundle_adjacency(cluster_map1.centroids, cluster_map2.centroids)
+
+    from ipdb import set_trace as dbg
+    dbg()
     return
 
     """
@@ -868,8 +871,8 @@ def run_bundle_specific_stats():
 
 
 def run_full_brain_pipeline():
-    #dname = '/home/eleftherios/Data/fancy_data/2013_02_26_Patrick_Delattre/'
-    dname = '/home/marc/research/data/streamlines/ismrm/'
+    dname = '/home/eleftherios/Data/fancy_data/2013_02_26_Patrick_Delattre/'
+    #dname = '/home/marc/research/data/streamlines/ismrm/'
     fname =  dname + 'streamlines_500K.trk'
 
     # Load streamlines
@@ -880,7 +883,7 @@ def run_full_brain_pipeline():
         streamlines = streamlines[:10000]
         np.save('data.npy', streamlines)
     else:
-       streamlines = np.load('data.npy')
+       streamlines = np.load('data.npy').tolist()
 
     full_brain_pipeline(streamlines)
 
@@ -892,6 +895,6 @@ if __name__ == '__main__':
 
     #run_visualize_impact_of_metric(dname, 'af.right')
     #run_bundle_pruning(dname, 'af.right')
-    #run_full_brain_pipeline()
+    run_full_brain_pipeline()
 
-    run_bundle_specific_stats()
+    #run_bundle_specific_stats()
