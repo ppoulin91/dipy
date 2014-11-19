@@ -861,7 +861,10 @@ def run_bundle_specific_stats():
 
     rstreamlines = set_number_of_points(streamlines, 12)
     qb = QuickBundles(threshold=5.)
-    automatic_outliers_removal(rstreamlines, qb, nb_samplings=100)
+    cluster_map = qb.cluster(rstreamlines)
+    print len(cluster_map)
+
+    #automatic_outliers_removal(rstreamlines, qb, nb_samplings=100)
 
 
 def run_full_brain_pipeline():
