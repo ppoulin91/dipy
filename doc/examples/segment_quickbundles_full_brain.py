@@ -186,19 +186,19 @@ def get_bounding_box(streamlines):
 class EndpointsXFeature(Feature):
 
     def infer_shape(self, streamline):
-        return (1, 1)
+        return 1
 
     def extract(self, streamline):
         x1 = streamline[0, 0]
         x2 = streamline[-1, 0]
 
         if x1 < 0 and x2 < 0:
-            return np.array([[-1]])
+            return -1
 
         if x1 > 0 and x2 > 0:
-            return np.array([[1]])
+            return 1
 
-        return np.array([[0]])
+        return 0
 
 
 class LeftRightMiddleMetric(Metric):
@@ -249,7 +249,7 @@ def identify_left_right_middle_clusters(clusters):
     middle_clusters = []
 
     for cluster in clusters:
-        side = feature.extract(cluster[0])[0, 0]
+        side = feature.extract(cluster[0])
         if side == 0:
             middle_clusters.append(cluster)
         elif side == 1:
@@ -542,7 +542,7 @@ def mdf(streamlines, threshold, pts=None):
 
 
 def full_brain_pipeline(streamlines):
-    show_streamlines(streamlines, fname='initial_full_brain.png')
+    #show_streamlines(streamlines, fname='initial_full_brain.png')
 
     """
     Length
@@ -555,20 +555,16 @@ def full_brain_pipeline(streamlines):
     print("QB-Length duration: {:.2f} sec".format(time()-t0))
 
     makelabel = lambda c: "{:.2f}mm".format(c.centroid[0, 0])
-    #show_clusters_exploded_view(cluster_map, makelabel=makelabel, fname='length_full_brain_clusters_exploded.png')
-    show_clusters(cluster_map)
+    #show_clusters(cluster_map)
     show_clusters_grid_view(cluster_map, makelabel=makelabel, fname='length_full_brain_clusters_grid.png')
 
     print "low: ",
     low = float(raw_input())
-    #low = 50
     print "high: ",
     high = float(raw_input())
-    #high = 150
     clusters = remove_clusters_by_length(cluster_map, low=low, high=high)
 
     show_clusters(clusters)
-    #show_clusters_exploded_view(clusters, makelabel=makelabel, fname='length_full_brain_clusters_exploded.png')
     show_clusters_grid_view(clusters, makelabel=makelabel, fname='length_full_brain_clusters_grid.png')
 
     """
@@ -870,9 +866,7 @@ def run_bundle_specific_stats():
     #automatic_outliers_removal(rstreamlines, qb, nb_samplings=100)
 
 
-def run_full_brain_pipeline():
-    dname = '/home/eleftherios/Data/fancy_data/2013_02_26_Patrick_Delattre/'
-    #dname = '/home/marc/research/data/streamlines/ismrm/'
+def run_full_brain_pipeline(dname):
     fname =  dname + 'streamlines_500K.trk'
 
     # Load streamlines
@@ -895,6 +889,6 @@ if __name__ == '__main__':
 
     #run_visualize_impact_of_metric(dname, 'af.right')
     #run_bundle_pruning(dname, 'af.right')
-    run_full_brain_pipeline()
+    run_full_brain_pipeline(dname)
 
     #run_bundle_specific_stats()
