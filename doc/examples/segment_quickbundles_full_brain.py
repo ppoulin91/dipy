@@ -867,6 +867,7 @@ def run_bundle_specific_stats():
 
 
 def run_full_brain_pipeline(dname):
+    #dname = '/home/marc/research/data/streamlines/ismrm/'
     fname =  dname + 'streamlines_500K.trk'
 
     # Load streamlines
@@ -884,6 +885,7 @@ def run_full_brain_pipeline(dname):
 
 if __name__ == '__main__':
     np.random.seed(43)
+    #dname = '/home/eleftherios/Data/fancy_data/2013_02_26_Patrick_Delattre/'
     #dname = '/home/eleftherios/Data/fancy_data/2013_03_26_Emmanuelle_Renauld/TRK_files/'
     dname = '/home/marc/research/data/streamlines/ismrm/'
 
