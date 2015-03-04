@@ -1654,7 +1654,7 @@ def camera(ren, pos=None, focal=None, viewup=None, verbose=True):
     return cam
 
 
-def show(ren, title='Dipy', size=(300, 300), png_magnify=1):
+def show(ren, title='Dipy', size=(300, 300), png_magnify=1, cam_pos=None, cam_focal=None, cam_view=None):
     """ Show window
 
     Notes
@@ -1715,6 +1715,16 @@ def show(ren, title='Dipy', size=(300, 300), png_magnify=1):
     iren = vtk.vtkRenderWindowInteractor()
     iren.SetRenderWindow(window)
     iren.SetPicker(picker)
+
+    if cam_pos is not None:
+        cx, cy, cz = cam_pos
+        ren.GetActiveCamera().SetPosition(cx, cy, cz)
+    if cam_focal is not None:
+        fx, fy, fz = cam_focal
+        ren.GetActiveCamera().SetFocalPoint(fx, fy, fz)
+    if cam_view is not None:
+        ux, uy, uz = cam_view
+        ren.GetActiveCamera().SetViewUp(ux, uy, uz)
 
     def key_press(obj, event):
 
