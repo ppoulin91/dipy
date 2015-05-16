@@ -546,6 +546,8 @@ class QuickBundles(Clustering):
                                    threshold=self.threshold,
                                    max_nb_clusters=self.max_nb_clusters,
                                    ordering=ordering)
+        if refdata is None:
+            refdata = streamlines
 
         cluster_map.refdata = streamlines
         return cluster_map
