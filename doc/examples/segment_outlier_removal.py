@@ -26,7 +26,8 @@ def get_streamlines_bounding_box(streamlines):
 
 def show_clusters(clusters, colormap=None, cam_pos=None,
                   cam_focal=None, cam_view=None,
-                  magnification=1, fname=None, size=(900, 900)):
+                  magnification=1, fname=None, size=(900, 900),
+                  opacities=None):
 
     from dipy.viz import fvtk
     from dipy.viz.axycolor import distinguishable_colormap
@@ -34,15 +35,14 @@ def show_clusters(clusters, colormap=None, cam_pos=None,
     if colormap is None:
         colormap = distinguishable_colormap(bg=bg)
 
+    if opacities is None:
+        opacities = [1.]*len(clusters)
+
     ren = fvtk.ren()
     fvtk.clear(ren)
     ren.SetBackground(*bg)
-    for i, (cluster, color) in enumerate(izip(clusters, colormap)):
-        if i == 0 and len(clusters) == 2:
-            fvtk.add(ren, fvtk.line(list(cluster), [color]*len(cluster), linewidth=2, opacity=0.25))
-        else:
-            fvtk.add(ren, fvtk.line(list(cluster), [color]*len(cluster), linewidth=2))
-            #fvtk.add(ren, fvtk.streamtube(list(cluster), [color]*len(cluster), linewidth=0.3, opacity=0.7))
+    for cluster, color, opacity in izip(clusters, colormap, opacities):
+        fvtk.add(ren, fvtk.line(list(cluster), [color]*len(cluster), linewidth=2, opacity=opacity))
 
     fvtk.show(ren, size=size, cam_pos=cam_pos, cam_focal=cam_focal, cam_view=cam_view)
     cam = ren.GetActiveCamera()
@@ -57,16 +57,9 @@ def show_clusters_grid_view(clusters, colormap=None, makelabel=None, grid_of_clu
     from dipy.viz.axycolor import distinguishable_colormap
 
     def grid_distribution(N):
-        def middle_divisors(n):
-            for i in range(int(n ** (0.5)), 2, -1):
-                if n % i == 0:
-                    return i, n // i
-
-            return middle_divisors(n+3)  # If prime number take next one
-
-        height, width = middle_divisors(N)
+        height, width = (int(np.ceil(np.sqrt(N))), ) * 2  # Square
         X, Y, Z = np.meshgrid(np.arange(width), np.arange(height), [0])
-        return np.array([X.flatten(), Y.flatten(), Z.flatten()]).T
+        return np.array([X.flatten(), -Y.flatten(), Z.flatten()]).T
 
     bg = (1, 1, 1)
     if colormap is None:
@@ -103,6 +96,21 @@ def show_clusters_grid_view(clusters, colormap=None, makelabel=None, grid_of_clu
             fvtk.label(ren, text=label, pos=text_pos, scale=text_scale, color=(0, 0, 0))
 
     fvtk.show(ren, size=size)
+
+
+def prune_split(streamlines, thresholds, features):
+    indices = np.arange(len(streamlines))
+    clusters_indices = []
+
+    last_threshold = 0
+    for threshold in sorted(thresholds):
+        idx = indices[np.bitwise_and(last_threshold <= features, features < threshold)]
+        clusters_indices.append(idx)
+        last_threshold = threshold
+
+    idx = indices[last_threshold <= features]
+    clusters_indices.append(idx)
+    return clusters_indices
 
 
 class Node(object):
@@ -238,7 +246,9 @@ def prune(streamlines, threshold, features, refdata=None):
 def outliers_removal_using_hierarchical_quickbundles(streamlines, confidence=0.95, min_threshold=1, nb_samplings_max=30, seed=None, nb_thresholds=10):
     rng = np.random.RandomState(seed)
     sterror_factor = ndtri(confidence)
-    metric = "mdf"
+    #feature = ResampleFeature(nb_points=18)
+    # We suppose streamlines have already been resampled
+    metric = dipymetric.AveragePointwiseEuclideanMetric()
 
     box_min, box_max = get_streamlines_bounding_box(streamlines)
     #initial_threshold = np.sqrt(np.sum((box_max - box_min)**2)) / 4.  # Half of the bounding box's halved diagonal length.
@@ -307,7 +317,9 @@ def outliers_removal_using_hierarchical_quickbundles(streamlines, confidence=0.9
 
 def outliers_removal_using_hierarchical_quickbundles_improved(streamlines, confidence=0.95, min_threshold=0.5, nb_samplings_max=30):
     sterror_factor = ndtri(confidence)
-    metric = "mdf"
+    #feature = ResampleFeature(nb_points=18)
+    # We suppose streamlines have already been resampled
+    metric = dipymetric.AveragePointwiseEuclideanMetric()
     streamlines = np.array(streamlines)
 
     start_time = time()
@@ -382,7 +394,9 @@ def outliers_removal_using_hierarchical_quickbundles_improved(streamlines, confi
 
 def outliers_removal_using_hierarchical_quickbundles_improved_proba(streamlines, confidence=0.95, min_threshold=0., nb_samplings_max=30):
     sterror_factor = ndtri(confidence)
-    metric = "mdf"
+    #feature = ResampleFeature(nb_points=18)
+    # We suppose streamlines have already been resampled
+    metric = dipymetric.AveragePointwiseEuclideanMetric()
     streamlines = np.array(streamlines)
 
     start_time = time()
@@ -556,6 +570,32 @@ def apply_on_specific_bundle(streamlines, confidence):
         show_clusters([rest_cluster, outliers_cluster], [fvtk.colors.turquoise_dark, fvtk.colors.orange_red], *cam_infos)
         show_clusters(zip(streamlines), fvtk.create_colormap(1-summary), *cam_infos)
 
+def apply_on_specific_bundle_split(streamlines, confidence):
+    #show_clusters([streamlines], colormap=[fvtk.colors.green])
+    rstreamlines = set_number_of_points(streamlines, 20)
+
+    summary, infos = outliers_removal_using_hierarchical_quickbundles(rstreamlines, confidence=confidence)
+    #summary, infos = outliers_removal_using_hierarchical_quickbundles_improved(rstreamlines, confidence=confidence)
+    #summary, infos = outliers_removal_using_hierarchical_quickbundles_improved_proba(rstreamlines, confidence=confidence)
+
+    import pylab as plt
+    plt.hist(summary, bins=100)
+    plt.show(False)
+
+    while True:
+        print "---\nNew prunning threshold:",
+        alphas = map(float, raw_input().split())
+
+        clusters_indices = prune_split(rstreamlines, alphas, summary)
+        clusters = []
+        for i, idx in enumerate(clusters_indices):
+            print "#{} - Pruned {} out of {} streamlines".format(1, len(idx), len(streamlines))
+
+            clusters.append(Cluster(indices=idx, refdata=streamlines))
+
+        makelabel = lambda c: str(len(c))
+        show_clusters_grid_view(clusters, makelabel=makelabel)
+
 
 def load_specific_bundle(bundlename):
     import nibabel as nib
@@ -611,83 +651,3 @@ if __name__ == '__main__':
 
     show_hierarchical_clusters(hclusters, show_circles=True)
     exit()
-
-
-
-# def outliers_removal_using_hierarchical_quickbundles_improved_proba(streamlines, confidence=0.95, min_threshold=0.5, nb_samplings_max=30):
-#     sterror_factor = ndtri(confidence)
-#     metric = "mdf"
-#     streamlines = np.array(streamlines)
-#     box_min, box_max = get_streamlines_bounding_box(streamlines)
-#     #initial_threshold = np.sqrt(np.sum((box_max - box_min)**2)) / 4.  # Half of the bounding box's halved diagonal length.
-#     initial_threshold = np.min(np.abs(box_max - box_min)) / 2.
-
-#     # Quickbundle's threshold is halved between hierarchical level.
-#     thresholds = list(takewhile(lambda t: t >= min_threshold, (initial_threshold / 1.2**i for i in count())))
-
-#     start_time = time()
-#     ordering = np.arange(len(streamlines))
-#     nb_clusterings = 0
-
-#     streamlines_prob = np.ones((len(streamlines), nb_samplings_max)) * 0.0
-#     streamlines_path = np.ones((len(streamlines), 100, nb_samplings_max), dtype=int) * -1
-#     for i in range(nb_samplings_max):
-#         np.random.shuffle(ordering)
-
-#         cluster_orderings = [ordering]
-#         j = 0
-#         while len(cluster_orderings) > 0:
-#         #for j, threshold in enumerate(thresholds):
-#             id_cluster = 0
-#             #print "Ordering #{0}, QB/{2}mm, {1} clusters to process".format(i+1, len(cluster_orderings), threshold)
-#             print "Ordering #{0}, {1} clusters to process".format(i+1, len(cluster_orderings))
-
-#             next_cluster_orderings = []
-#             #qb = QuickBundles(metric=metric, threshold=threshold)
-#             for cluster_ordering in cluster_orderings:
-#                 box_min, box_max = get_streamlines_bounding_box(streamlines[cluster_ordering])
-#                 threshold = np.min(np.abs(box_max - box_min)) / 2.
-#                 qb = QuickBundles(metric=metric, threshold=threshold)
-#                 clusters = qb.cluster(streamlines, ordering=cluster_ordering)
-
-#                 while len(clusters) == 1:
-#                     threshold /= 2.
-#                     qb = QuickBundles(metric=metric, threshold=threshold)
-#                     clusters = qb.cluster(streamlines, ordering=cluster_ordering)
-
-#                 nb_clusterings += 1
-
-#                 sizes = map(len, clusters)
-#                 #p = 1./np.mean(sizes)
-#                 #probs = np.log(stats.geom.pmf(sizes, p))
-#                 probs = np.log(sizes) - np.log(np.sum(sizes))
-
-#                 for k, (cluster, outlier_prob) in enumerate(zip(clusters, probs)):
-#                     streamlines_prob[cluster.indices, i] += outlier_prob
-#                     streamlines_path[cluster.indices, j, i] = id_cluster
-#                     id_cluster += 1
-#                     if len(cluster) > 1:
-#                         next_cluster_orderings.append(cluster.indices)
-
-#             cluster_orderings = next_cluster_orderings
-#             j += 1
-
-#         print "{} qb done in {:.2f} sec on {} streamlines".format(nb_clusterings, time()-start_time, len(streamlines))
-
-#         #path_lengths_per_streamline = np.sum(T[:, None]*(streamlines_path == -1), axis=1)
-#         path_lengths_per_streamline = np.sum((streamlines_path != -1), axis=1)[:, :i+1]
-
-#         # Compute confidence interval on mean cluster's size for each streamlines
-#         sterror_path_length_per_streamline = np.std(path_lengths_per_streamline, axis=1, ddof=1) / np.sqrt(i+1)
-#         print "Avg. sterror:", sterror_factor*sterror_path_length_per_streamline.mean()
-#         print "Max. sterror:", sterror_factor*sterror_path_length_per_streamline.max()
-
-#         if sterror_factor*sterror_path_length_per_streamline.mean() < 0.5:
-#             break
-
-#     from ipdb import set_trace as dbg
-#     dbg()
-
-#     summary = np.mean(path_lengths_per_streamline, axis=1) / np.max(path_lengths_per_streamline)
-#     return summary, path_lengths_per_streamline
-
