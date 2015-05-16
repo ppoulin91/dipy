@@ -2,10 +2,13 @@ import operator
 import numpy as np
 
 from abc import ABCMeta, abstractmethod
+from collections import defaultdict
 
 from dipy.segment.metric import Metric
 from dipy.segment.metric import ResampleFeature
 from dipy.segment.metric import AveragePointwiseEuclideanMetric
+
+from dipy.tracking.streamline import get_bounding_box_streamlines
 
 
 class Identity:
@@ -161,6 +164,29 @@ class ClusterCentroid(Cluster):
         converged = np.equal(self.centroid, self.new_centroid)
         self.centroid = self.new_centroid.copy()
         return converged
+
+
+class HierarchicalCluster(Cluster):
+    def __init__(self, cluster, threshold, parent=None):
+        self._cluster = cluster
+        self.threshold = threshold
+        self.parent = parent
+        self.children = []
+
+    def add(self, child):
+        self.children.append(child)
+
+    @property
+    def is_leaf(self):
+        return len(self.children) == 0
+
+    @property
+    def indices(self):
+        return self._cluster.indices
+
+    def __getitem__(self, idx):
+        """ Gets element(s) through indexing. """
+        return self._cluster[idx]
 
 
 class ClusterMap(object):
@@ -379,6 +405,22 @@ class ClusterMapCentroid(ClusterMap):
     def centroids(self):
         return [cluster.centroid for cluster in self.clusters]
 
+class HierarchicalClusterMap(ClusterMap):
+    def __init__(self, root):
+        self.root = root
+        self.leaves = []
+
+        def _retrieves_leaves(node):
+            if node.is_leaf:
+                self.leaves.append(node)
+
+        self.traverse_postorder(self.root, _retrieves_leaves)
+
+    def traverse_postorder(self, node, visit):
+        for child in node.children:
+            self.traverse_postorder(child, visit)
+
+        visit(node)
 
 class Clustering(object):
     __metaclass__ = ABCMeta
@@ -497,3 +539,126 @@ class QuickBundles(Clustering):
 
         cluster_map.refdata = streamlines
         return cluster_map
+
+
+def quickbundles_with_merging(streamlines, qb, ordering=None):
+    cluster_map = qb.cluster(streamlines, ordering=ordering)
+    if len(streamlines) == len(cluster_map):
+        return cluster_map.clusters
+
+    qb_for_merging = QuickBundles(metric=qb.metric, threshold=qb.threshold)
+    clusters = quickbundles_with_merging(cluster_map.centroids, qb_for_merging, None)
+
+    merged_clusters = []
+    for cluster in clusters:
+        merged_cluster = Cluster()
+        merged_cluster.refdata = cluster_map.refdata
+        for i in cluster.indices:
+            merged_cluster.indices.extend(cluster_map[i].indices)
+        merged_clusters.append(merged_cluster)
+
+    return merged_clusters
+
+
+class HierarchicalQuickBundles(Clustering):
+    r""" Clusters streamlines using hierarchical QuickBundles.
+
+    Hierarchical QuickBundles is a divisive approach where all streamlines start
+    in one cluster and splits are performed recursively using QuickBundles
+    [Garyfallidis12]_ (see ``QuickBundles``).
+
+    More specifically, QuickBundles is first run with a large threshold to
+    obtain a set of clusters of streamlines. Then, it is applied again on each
+    of those clusters with a smaller threshold. The process is repeated until
+    either the threshold has reached `min_threhold` or every streamlines belong
+    to a cluster with less or equal than `min_cluster_size`.
+
+    Parameters
+    ----------
+    metric : str or `Metric` object (optional)
+        The distance metric to use when comparing two streamlines. By default,
+        the Minimum average Direct-Flip (MDF) distance [Garyfallidis12]_ is
+        used and requires streamlines to have the same number of points.
+    min_threshold : float
+        Algorithm stop when the moving threshold reaches this value.
+    min_cluster_size : int
+        Algorithm stop when the size of every clusters reach this value.
+
+    References
+    ----------
+    .. [Garyfallidis12] Garyfallidis E. et al., QuickBundles a method for
+                        tractography simplification, Frontiers in Neuroscience,
+                        vol 6, no 175, 2012.
+    """
+    def __init__(self, metric="MDF", min_threshold=0, min_cluster_size=1):
+        self.metric = metric_factory(metric)
+        self.min_threshold = min_threshold
+        self.min_cluster_size = min_cluster_size
+
+    def cluster(self, streamlines, ordering=None):
+        """ Clusters `streamlines` into a hierarchy of bundles.
+
+        Performs hierarchical quickbundles algorithm using predefined metric.
+
+        Parameters
+        ----------
+        streamlines : list of 2D arrays
+            Each 2D array represents a sequence of 3D points (nb_points, 3).
+        ordering : iterable of indices
+            Specifies the order in which data points will be clustered.
+
+        Returns
+        -------
+        `HierarchicalClusterMap` object
+            Result of the clustering.
+        """
+        # QuickBundles threshold decreases as we go down in the hierarchy.
+        reduction_factor = 1
+
+        # Simple heuristic to determine the initial threshold, we take
+        # half of the bounding box diagonal length.
+        box_min, box_max = get_bounding_box_streamlines(streamlines)
+        threshold = np.sqrt(np.sum((box_max - box_min)**2)) / 2.
+
+        # Find root of the hierarchical quickbundles.
+        while True:
+            qb = QuickBundles(metric=self.metric, threshold=threshold)
+            clusters = qb.cluster(streamlines, ordering=ordering)
+            #clusters = quickbundles_with_merging(streamlines, qb, ordering=ordering)
+            if len(clusters) > 1:
+                break
+
+            root = HierarchicalCluster(clusters[0], threshold=threshold)
+            threshold -= reduction_factor  # Linear reduction
+
+        nodes = [root]
+        while len(nodes) > 0:
+            print "Ordering {0} clusters to process".format(len(nodes))
+
+            next_nodes = []
+            for node in nodes:
+                threshold = max(node.threshold-reduction_factor, self.min_threshold)
+                while threshold >= self.min_threshold:
+                    qb = QuickBundles(metric=self.metric, threshold=threshold)
+                    clusters = qb.cluster(streamlines, ordering=node.indices)
+                    #clusters = quickbundles_with_merging(streamlines, qb, ordering=node.indices)
+                    if len(clusters) > 1:
+                        break
+
+                    threshold -= reduction_factor  # Linear reduction
+
+                # We do not further down the hierarchy.
+                if len(clusters) == 1:
+                    continue
+
+                for cluster in clusters:
+                    new_node = HierarchicalCluster(cluster, threshold=threshold, parent=node)
+                    node.add(new_node)
+
+                    # Check if cluster still contains enough streamlines.
+                    if len(cluster) > self.min_cluster_size:
+                        next_nodes.append(new_node)
+
+            nodes = next_nodes
+
+        return HierarchicalClusterMap(root)
