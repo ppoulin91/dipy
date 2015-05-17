@@ -8,6 +8,7 @@ from time import time
 
 from scipy.special import ndtri
 
+import dipy.segment.metric as dipymetric
 from dipy.tracking.streamline import set_number_of_points
 from dipy.segment.clustering import QuickBundles, Cluster
 from itertools import takewhile, count, izip, chain
