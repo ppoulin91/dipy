@@ -29,15 +29,6 @@ def metric_factory(metric):
         raise ValueError("Unknown metric: {0}".format(metric))
 
 
-def metric_factory(metric):
-    if isinstance(metric, Metric):
-        return metric
-    elif metric.upper() == "MDF":
-        return AveragePointwiseEuclideanMetric()
-
-    raise ValueError("Not a valid metric: {0}".format(metric))
-
-
 def mdf(s1, s2):
     """ Computes the MDF (Minimum average Direct-Flip) distance
     [Garyfallidis12]_ between two streamlines.

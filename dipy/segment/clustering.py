@@ -671,3 +671,105 @@ class HierarchicalQuickBundles(Clustering):
             nodes = next_nodes
 
         return HierarchicalClusterMap(root)
+
+
+def outlier_rejection(streamlines, threshold=0.2, confidence=0.95,
+                      hqb=HierarchicalQuickBundles(), nb_samplings_max=50, seed=None,
+                      return_outlierness=False, verbose=False):
+    """
+    Detects outliers in a set of streamlines.
+
+    This technique uses the Hierarchical QuickBundles which provides more
+    information about how streamlines get along with each others. In particular,
+    this method relies on the level
+
+    Specify the impact of the ordering
+
+
+    Parameters
+    ----------
+    streamlines : list of 2D arrays
+        Each 2D array represents a sequence of 3D points (nb_points, 3).
+    threshold : float (optional)
+        TODO: Threshold on the outlierness
+    confidence : float (optional)
+        Level of confidence of the confidence interval around the mean
+        streamlines path length in the clustering tree.
+    hqb : `HierarchicalQuickBundles` object (optional)
+        The clustering technique that will be used. By default,
+        metric="MDF_12points", min_threshold=0, min_cluster_size=1.
+    nb_samplings_max : int (optional)
+        The maximum number of different orderings to try
+    seed : int (optional)
+        Controls the shuffling of the ordering
+    return_outlierness : bool (optional)
+        If `True`, the outlierness of each streamline is returned.
+    verbose : bool (optional)
+        Display information about the ongoing process.
+
+    Returns
+    -------
+    inliers : `Cluster` object
+        The cluster of streamlines considered inliers i.e. having an
+        outlierness below or equal to `threshold`.
+    outliers : `Cluster` object
+        The cluster of streamlines considered outliers i.e. having an
+        outlierness over `threshold`.
+    outlierness : 1D array (optional)
+        The outlierness of each streamline is returned only if
+        `return_outlierness` is `True`.
+    """
+
+    if nb_samplings_max < 2:
+        raise ValueError("'nb_samplings_max' must be >= 2")
+
+    from scipy.special import ndtri
+    sterror_factor = ndtri(confidence)
+
+    rng = np.random.RandomState(seed)
+
+    paths_length = np.zeros((len(streamlines), nb_samplings_max), dtype=int)
+    ordering = np.arange(len(streamlines))
+    for ordering_no in range(1, nb_samplings_max+1):
+        rng.shuffle(ordering)
+
+        tree_clusters = hqb.cluster(streamlines, ordering=ordering)
+        # Compute streamlines path length in the clustering tree for this ordering.
+        for node in tree_clusters:
+            if node.parent is None:
+                continue
+
+            paths_length[node.indices, ordering_no-1] += 1
+            #paths_length[node.indices, ordering_no-1] += (node.parent.threshold - node.threshold)
+
+        if ordering_no < 2:  # Needs at least two orderings to compute stderror.
+            continue
+
+        # TODO: we should probably use Student's t distribution instead of the normal
+        #       see http://brownmath.com/stat/sampsiz.htm#Case1
+        # Compute confidence interval on mean path length for each streamline
+        sterror_path_length = np.std(paths_length[:, :ordering_no], axis=1, ddof=1) / np.sqrt(ordering_no)
+
+        if verbose:
+            print "Ordering #{0}".format(ordering_no)
+            print "  Avg. sterror:", sterror_factor*sterror_path_length.mean()
+            print "  Max. sterror:", sterror_factor*sterror_path_length.max()
+
+        # Stop when the error margin is less than 0.5,
+        # i.e. we are `confident`% confident in the means with a margin of
+        # error no more than 1 length unit.
+        if sterror_factor*sterror_path_length.mean() < 0.5:
+            break
+
+    # Compute the mean of paths length normalized by the max path length for each ordering.
+    mean_paths_length = np.mean(paths_length[:, :ordering_no], axis=1)
+    outlierness = 1 - (mean_paths_length/mean_paths_length.max())
+
+    indices = np.arange(len(streamlines))
+    outliers = Cluster(indices=indices[outlierness > threshold], refdata=streamlines)
+    inliers = Cluster(indices=indices[outlierness <= threshold], refdata=streamlines)
+
+    if return_outlierness:
+        return inliers, outliers, outlierness
+
+    return inliers, outliers
