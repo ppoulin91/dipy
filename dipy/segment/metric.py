@@ -19,6 +19,16 @@ from dipy.segment.metricspeed import (dist,
 EuclideanMetric = SumPointwiseEuclideanMetric
 
 
+def metric_factory(metric):
+    if isinstance(metric, Metric):
+        return metric
+    elif metric == "MDF_12points":
+        feature = ResampleFeature(nb_points=12)
+        return AveragePointwiseEuclideanMetric(feature)
+    else:
+        raise ValueError("Unknown metric: {0}".format(metric))
+
+
 def mdf(s1, s2):
     """ Computes the MDF (Minimum average Direct-Flip) distance
     [Garyfallidis12]_ between two streamlines.
