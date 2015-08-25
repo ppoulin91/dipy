@@ -2,12 +2,11 @@ import operator
 import numpy as np
 
 from abc import ABCMeta, abstractmethod
-from collections import defaultdict
-
 from dipy.segment.metric import Metric
 from dipy.segment.metric import ResampleFeature
 from dipy.segment.metric import AveragePointwiseEuclideanMetric
 
+from dipy.segment.metric import metric_factory
 from dipy.tracking.streamline import get_bounding_box_streamlines
 
 
@@ -405,6 +404,7 @@ class ClusterMapCentroid(ClusterMap):
     def centroids(self):
         return [cluster.centroid for cluster in self.clusters]
 
+
 class HierarchicalClusterMap(ClusterMap):
     def __init__(self, root):
         self.root = root
@@ -421,6 +421,23 @@ class HierarchicalClusterMap(ClusterMap):
             self.traverse_postorder(child, visit)
 
         visit(node)
+
+    def iter_preorder(self, node):
+        parent_stack = []
+        while len(parent_stack) > 0 or node is not None:
+            if node is not None:
+                yield node
+                if len(node.children) > 0:
+                    parent_stack += node.children[1:]
+                    node = node.children[0]
+                else:
+                    node = None
+            else:
+                node = parent_stack.pop()
+
+    def __iter__(self):
+        return self.iter_preorder(self.root)
+
 
 class Clustering(object):
     __metaclass__ = ABCMeta
@@ -505,14 +522,7 @@ class QuickBundles(Clustering):
     def __init__(self, threshold, metric="MDF_12points", max_nb_clusters=np.iinfo('i4').max):
         self.threshold = threshold
         self.max_nb_clusters = max_nb_clusters
-
-        if isinstance(metric, Metric):
-            self.metric = metric
-        elif metric == "MDF_12points":
-            feature = ResampleFeature(nb_points=12)
-            self.metric = AveragePointwiseEuclideanMetric(feature)
-        else:
-            raise ValueError("Unknown metric: {0}".format(metric))
+        self.metric = metric_factory(metric)
 
     def cluster(self, streamlines, ordering=None):
         """ Clusters `streamlines` into bundles.
@@ -590,10 +600,10 @@ class HierarchicalQuickBundles(Clustering):
                         tractography simplification, Frontiers in Neuroscience,
                         vol 6, no 175, 2012.
     """
-    def __init__(self, metric="MDF", min_threshold=0, min_cluster_size=1):
-        self.metric = metric_factory(metric)
+    def __init__(self, metric="MDF_12points", min_threshold=0, min_cluster_size=1):
         self.min_threshold = min_threshold
         self.min_cluster_size = min_cluster_size
+        self.metric = metric_factory(metric)
 
     def cluster(self, streamlines, ordering=None):
         """ Clusters `streamlines` into a hierarchy of bundles.
@@ -613,14 +623,14 @@ class HierarchicalQuickBundles(Clustering):
             Result of the clustering.
         """
         # QuickBundles threshold decreases as we go down in the hierarchy.
-        reduction_factor = 1
+        reduction_factor = 1  # TODO: explore what would be an optimal reduction scheme
 
         # Simple heuristic to determine the initial threshold, we take
-        # half of the bounding box diagonal length.
+        # the bounding box diagonal length.
         box_min, box_max = get_bounding_box_streamlines(streamlines)
-        threshold = np.sqrt(np.sum((box_max - box_min)**2)) / 2.
+        threshold = np.sqrt(np.sum((box_max - box_min)**2))
 
-        # Find root of the hierarchical quickbundles.
+        # Find the tightest root of the hierarchical quickbundles.
         while True:
             qb = QuickBundles(metric=self.metric, threshold=threshold)
             clusters = qb.cluster(streamlines, ordering=ordering)
@@ -633,10 +643,9 @@ class HierarchicalQuickBundles(Clustering):
 
         nodes = [root]
         while len(nodes) > 0:
-            print "Ordering {0} clusters to process".format(len(nodes))
-
             next_nodes = []
             for node in nodes:
+                clusters = []
                 threshold = max(node.threshold-reduction_factor, self.min_threshold)
                 while threshold >= self.min_threshold:
                     qb = QuickBundles(metric=self.metric, threshold=threshold)
@@ -648,7 +657,7 @@ class HierarchicalQuickBundles(Clustering):
                     threshold -= reduction_factor  # Linear reduction
 
                 # We do not further down the hierarchy.
-                if len(clusters) == 1:
+                if len(clusters) <= 1:
                     continue
 
                 for cluster in clusters:
