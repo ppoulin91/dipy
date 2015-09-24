@@ -45,9 +45,14 @@ def MakeLUTFromCTF(tableSize):
     ctf = vtk.vtkColorTransferFunction()
     ctf.SetColorSpaceToDiverging()
     # Blue to red.
-    ctf.AddRGBPoint(0.0, 0.230, 0.299, 0.754)
-    ctf.AddRGBPoint(0.5, 0.865, 0.865, 0.865)
-    ctf.AddRGBPoint(1.0, 0.706, 0.016, 0.150)
+    #ctf.AddRGBPoint(0.0, 0.230, 0.299, 0.754)
+    #ctf.AddRGBPoint(0.5, 0.865, 0.865, 0.865)
+    #ctf.AddRGBPoint(1.0, 0.706, 0.016, 0.150)
+
+    ctf.AddRGBPoint(0.0, 0, 0, 0)
+    ctf.AddRGBPoint(0.001, 0, 0, 0.1)
+    ctf.AddRGBPoint(0.5, 1, 1, 1)
+    ctf.AddRGBPoint(1.0, 1, 0, 0)
 
     lut = vtk.vtkLookupTable()
     lut.SetNumberOfTableValues(tableSize)
@@ -68,19 +73,32 @@ def main():
         parser.error("Comparing streamlines is not implemented yet.")
 
     # Create a jet lookup table.
-    lut = MakeLUTFromCTF(501)
+    lut = MakeLUTFromCTF(40)
 
     actors = []
     value_ranges = []
     for anat_filename in args.anats:
+        print anat_filename
         anat = nib.load(anat_filename)
         data = anat.get_data()
 
-        value_range = (data.min(), data.max())
-        lut.SetRange(value_range)
+        # Zero should be in the middle of the range.
+        max_abs_value = max(abs(data.min()), abs(data.max()))
+        value_range = (-max_abs_value, max_abs_value)
+        print value_range
 
-        slice_actor = actor.slicer(data, anat.get_affine(), value_range, lookup_colormap=lut)
+        data[data == 0.0] = np.nan
+
+        lut = MakeLUTFromCTF(402)
+        #lut.SetTableRange(0, 255)
+        lut.SetTableRange(50, 205)
+        #lut.SetTableRange(value_range)
+        #lut.SetRange(value_range)
+
+        slice_actor = actor.slicer(data, np.eye(4), value_range, lookup_colormap=lut)
+        #slice_actor = actor.slicer(data, anat.get_affine(), value_range, lookup_colormap=lut)
         slice_actor.display(None, None, slice_actor.shape[2]//2)
+        slice_actor.SetInterpolate(False)
 
         value_ranges.append(value_range)
         actors.append(slice_actor)
