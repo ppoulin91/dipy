@@ -150,13 +150,13 @@ def slicer(data, affine=None, value_range=None, opacity=1.,
             if x is None and y is None and z is None:
                 self.display_extent(ex1, ex2, ey1, ey2, ez2/2, ez2/2)
             if x is not None:
-                x = min(max(0, x), self.shape[0])
+                x = min(max(0, x), self.shape[0]-1)
                 self.display_extent(x, x, ey1, ey2, ez1, ez2)
             if y is not None:
-                y = min(max(0, y), self.shape[1])
+                y = min(max(0, y), self.shape[1]-1)
                 self.display_extent(ex1, ex2, y, y, ez1, ez2)
             if z is not None:
-                z = min(max(0, z), self.shape[2])
+                z = min(max(0, z), self.shape[2]-1)
                 self.display_extent(ex1, ex2, ey1, ey2, z, z)
 
         def opacity(self, value):
