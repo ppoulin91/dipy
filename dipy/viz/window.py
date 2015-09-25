@@ -464,7 +464,9 @@ class ShowManager(object):
         def key_press_standard(obj, event):
 
             key = obj.GetKeySym()
+
             if key == 's' or key == 'S':
+
                 print('Saving image...')
                 renderLarge = vtk.vtkRenderLargeImage()
                 if major_version <= 5:
@@ -487,7 +489,7 @@ class ShowManager(object):
                     writer.Write()
                     print('File ' + filepath + ' is saved.')
 
-        self.iren.AddObserver('KeyPressEvent', key_press_standard)
+        self.iren.AddObserver('CharEvent', key_press_standard, 10)
 
         self.picker = vtk.vtkCellPicker()
         self.picker.SetTolerance(self.picker_tol)
