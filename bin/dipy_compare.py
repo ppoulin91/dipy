@@ -16,6 +16,9 @@ def build_args_parser():
     p.add_argument("--anats", metavar="anat", nargs="+",
                    help="File(s) containing streamlines (.nii|.nii.gz).")
 
+    p.add_argument("--axials", metavar="axial", nargs="+", type=int,
+                   help="What axial slices to show.")
+
     p.add_argument("--tractograms", metavar="tractogram", nargs="+",
                    help="File(s) containing streamlines (.trk).")
 
@@ -90,15 +93,21 @@ def main():
 
     actors = []
     value_ranges = []
+    max_abs_value = 0
     for anat_filename in args.anats:
         print anat_filename
         anat = nib.load(anat_filename)
         data = anat.get_data()
 
         # Zero should be in the middle of the range.
-        max_abs_value = max(abs(data.min()), abs(data.max()))
-        value_range = (-max_abs_value, max_abs_value)
-        print value_range
+        max_abs_value = max(abs(data.min()), abs(data.max()), max_abs_value)
+
+    value_range = (-max_abs_value, max_abs_value)
+    print value_range
+
+    for anat_filename in args.anats:
+        anat = nib.load(anat_filename)
+        data = anat.get_data()
 
         lut = MakeLUTFromCTF(256)
         lut.SetTableRange(0, 255)
@@ -127,6 +136,17 @@ def main():
         slice_actor.display(None, None, z+offset)
         new_z = slice_actor.GetDisplayExtent()[5]
         slice_actor.AddPosition(0, 0, z-new_z)
+        print new_z
+
+    if args.axials is not None:
+        axials = args.axials
+        if len(args.axials) != len(actors):
+            axials = [args.axials[0]] * len(actors)
+
+        for a, axial in zip(actors, axials):
+            z = a.GetDisplayExtent()[5]
+            a.display(None, None, axial)
+            a.AddPosition(0, 0, z-axial)
 
     def change_slice_event(obj, direction):
         event_position = obj.GetEventPosition()
