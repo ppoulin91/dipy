@@ -416,6 +416,22 @@ class HierarchicalClusterMap(ClusterMap):
 
         self.traverse_postorder(self.root, _retrieves_leaves)
 
+    @property
+    def refdata(self):
+        return self._refdata
+
+    @refdata.setter
+    def refdata(self, value):
+        if value is None:
+            value = Identity()
+
+        self._refdata = value
+
+        def _set_refdata(node):
+            node.refdata = self._refdata
+
+        self.traverse_postorder(self.root, _set_refdata)
+
     def traverse_postorder(self, node, visit):
         for child in node.children:
             self.traverse_postorder(child, visit)
@@ -546,8 +562,6 @@ class QuickBundles(Clustering):
                                    threshold=self.threshold,
                                    max_nb_clusters=self.max_nb_clusters,
                                    ordering=ordering)
-        if refdata is None:
-            refdata = streamlines
 
         cluster_map.refdata = streamlines
         return cluster_map
@@ -625,7 +639,7 @@ class HierarchicalQuickBundles(Clustering):
             Result of the clustering.
         """
         # QuickBundles threshold decreases as we go down in the hierarchy.
-        reduction_factor = 1  # TODO: explore what would be an optimal reduction scheme
+        reduction_factor = 0.2  # TODO: explore what would be an optimal reduction scheme
 
         # Simple heuristic to determine the initial threshold, we take
         # the bounding box diagonal length.
@@ -635,8 +649,8 @@ class HierarchicalQuickBundles(Clustering):
         # Find the tightest root of the hierarchical quickbundles.
         while True:
             qb = QuickBundles(metric=self.metric, threshold=threshold)
-            clusters = qb.cluster(streamlines, ordering=ordering)
-            #clusters = quickbundles_with_merging(streamlines, qb, ordering=ordering)
+            #clusters = qb.cluster(streamlines, ordering=ordering)
+            clusters = quickbundles_with_merging(streamlines, qb, ordering=ordering)
             if len(clusters) > 1:
                 break
 
@@ -649,10 +663,12 @@ class HierarchicalQuickBundles(Clustering):
             for node in nodes:
                 clusters = []
                 threshold = max(node.threshold-reduction_factor, self.min_threshold)
+                indices = node.indices
+                np.random.shuffle(indices)
                 while threshold >= self.min_threshold:
                     qb = QuickBundles(metric=self.metric, threshold=threshold)
-                    clusters = qb.cluster(streamlines, ordering=node.indices)
-                    #clusters = quickbundles_with_merging(streamlines, qb, ordering=node.indices)
+                    #clusters = qb.cluster(streamlines, ordering=indices)
+                    clusters = quickbundles_with_merging(streamlines, qb, ordering=indices)
                     if len(clusters) > 1:
                         break
 
@@ -672,4 +688,6 @@ class HierarchicalQuickBundles(Clustering):
 
             nodes = next_nodes
 
-        return HierarchicalClusterMap(root)
+        cluster_map = HierarchicalClusterMap(root)
+        cluster_map.refdata = streamlines
+        return cluster_map

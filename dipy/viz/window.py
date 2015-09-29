@@ -461,8 +461,10 @@ class ShowManager(object):
         self.iren.SetInteractorStyle(self.style)
         self.iren.SetRenderWindow(self.window)
 
-        def key_press_standard(obj, event):
+        # This variable will be used inside `char_standard`.
+        char_event_tag = -1
 
+        def char_standard(obj, event):
             key = obj.GetKeySym()
             if key == 's' or key == 'S':
                 print('Saving image...')
@@ -487,7 +489,10 @@ class ShowManager(object):
                     writer.Write()
                     print('File ' + filepath + ' is saved.')
 
-        self.iren.AddObserver('KeyPressEvent', key_press_standard)
+                command = obj.GetCommand(char_event_tag)
+                command.AbortFlagOn()
+
+        char_event_tag = self.iren.AddObserver('CharEvent', char_standard, 10)
 
         self.picker = vtk.vtkCellPicker()
         self.picker.SetTolerance(self.picker_tol)

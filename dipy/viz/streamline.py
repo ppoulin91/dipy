@@ -3,10 +3,32 @@ from __future__ import division
 import numpy as np
 from itertools import izip
 
+from dipy.viz import window, actor, interactor
+
 from dipy.viz import fvtk
 from dipy.viz.axycolor import distinguishable_colormap
 
 from dipy.tracking.streamline import get_bounding_box_streamlines
+
+
+def show_bundles(bundles, colormap=None):
+    bg = (0, 0, 0)
+    if colormap is None:
+        colormap = distinguishable_colormap(bg=bg)
+
+    ren = window.Renderer()
+    ren.background(bg)
+    #ren.projection("parallel")
+
+    actors = []
+    for bundle, color in zip(bundles, colormap):
+        stream_actor = actor.line(bundle, [color]*len(bundle), linewidth=1)
+        actors.append(stream_actor)
+
+    ren.add(*actors)
+    ren.reset_camera_tight()
+    show_m = window.ShowManager(ren, interactor_style="trackball")
+    show_m.start()
 
 
 def show_hierarchical_clusters(tree, theta_range=(0, np.pi), show_circles=False, size=(900, 900)):

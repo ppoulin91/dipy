@@ -121,6 +121,7 @@ def test_streamtube_and_line_actors():
     window.add(renderer, c2)
 
     arr = window.snapshot(renderer)
+    window.show(renderer)
 
     report = window.analyze_snapshot(arr,
                                      colors=[(255, 0, 0), (0, 0, 255)],

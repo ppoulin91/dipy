@@ -860,8 +860,8 @@ def text_overlay(text, position=(0, 0), color=(1, 1, 1),
 
 
 def text_3d(text, position=(0, 0, 0), color=(1, 1, 1),
-            font_size=12, font_family='Arial', justification='left',
-            vertical_justification="bottom",
+            font_size=12, font_family='Arial', justification='center',
+            vertical_justification="middle",
             bold=False, italic=False, shadow=False):
 
     class TextActor3D(vtk.vtkTextActor3D):
