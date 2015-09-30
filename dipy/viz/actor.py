@@ -976,7 +976,7 @@ def text_3d(text, position=(0, 0, 0), color=(1, 1, 1),
     return text_actor
 
 
-def figure(pic, interpolation='nearest'):
+def figure(pic, size=1, interpolation='nearest'):
     """ Return a figure as an image actor
 
     Parameters
@@ -1032,6 +1032,8 @@ def figure(pic, interpolation='nearest'):
 
     if interpolation == 'cubic':
         image_actor.GetProperty().SetInterpolationTypeToCubic()
+
+    image_actor.SetScale(float(size)/np.max(pic.shape))
 
     image_actor.Update()
     return image_actor

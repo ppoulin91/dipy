@@ -570,19 +570,21 @@ class QuickBundles(Clustering):
 def quickbundles_with_merging(streamlines, qb, ordering=None):
     cluster_map = qb.cluster(streamlines, ordering=ordering)
     if len(streamlines) == len(cluster_map):
-        return cluster_map.clusters
+        return cluster_map
 
     qb_for_merging = QuickBundles(metric=qb.metric, threshold=qb.threshold)
     clusters = quickbundles_with_merging(cluster_map.centroids, qb_for_merging, None)
 
-    merged_clusters = []
+    merged_clusters = ClusterMapCentroid()
     for cluster in clusters:
-        merged_cluster = Cluster()
-        merged_cluster.refdata = cluster_map.refdata
+        merged_cluster = ClusterCentroid(centroid=cluster.centroid)
+
         for i in cluster.indices:
             merged_cluster.indices.extend(cluster_map[i].indices)
-        merged_clusters.append(merged_cluster)
 
+        merged_clusters.add_cluster(merged_cluster)
+
+    merged_clusters.refdata = cluster_map.refdata
     return merged_clusters
 
 
@@ -649,8 +651,8 @@ class HierarchicalQuickBundles(Clustering):
         # Find the tightest root of the hierarchical quickbundles.
         while True:
             qb = QuickBundles(metric=self.metric, threshold=threshold)
-            #clusters = qb.cluster(streamlines, ordering=ordering)
-            clusters = quickbundles_with_merging(streamlines, qb, ordering=ordering)
+            clusters = qb.cluster(streamlines, ordering=ordering)
+            #clusters = quickbundles_with_merging(streamlines, qb, ordering=ordering)
             if len(clusters) > 1:
                 break
 
@@ -667,8 +669,8 @@ class HierarchicalQuickBundles(Clustering):
                 np.random.shuffle(indices)
                 while threshold >= self.min_threshold:
                     qb = QuickBundles(metric=self.metric, threshold=threshold)
-                    #clusters = qb.cluster(streamlines, ordering=indices)
-                    clusters = quickbundles_with_merging(streamlines, qb, ordering=indices)
+                    clusters = qb.cluster(streamlines, ordering=indices)
+                    #clusters = quickbundles_with_merging(streamlines, qb, ordering=indices)
                     if len(clusters) > 1:
                         break
 
