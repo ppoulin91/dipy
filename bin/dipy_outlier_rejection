@@ -256,7 +256,7 @@ def interactive_outlier_rejection(streamlines, outlierness, tractogram_filename,
         # Save outlierness in a csv file.
         ftypes = (("CSV", "*.csv"), ("All Files", "*.*"))
         outliersness_filename = append_text_to_filename(tractogram_filename, "_outlierness")
-        filename = window.save_file_dialog(initial_file=outliersness_filename,
+        filename = window.save_file_dialog(initial_file=os.path.splitext(outliersness_filename)[0] + ".csv",
                                            default_ext='.csv',
                                            file_types=ftypes,
                                            title="Saving outlierness scores")
@@ -268,7 +268,7 @@ def interactive_outlier_rejection(streamlines, outlierness, tractogram_filename,
         # Save snapshot of the histogram
         ftypes = (("PNG", "*.png"), ("All Files", "*.*"))
         hist_filename = append_text_to_filename(tractogram_filename, "_hist")
-        filename = window.save_file_dialog(initial_file=hist_filename,
+        filename = window.save_file_dialog(initial_file=os.path.splitext(hist_filename)[0] + ".png",
                                            default_ext='.png',
                                            file_types=ftypes,
                                            title="Saving histogram")

@@ -751,7 +751,8 @@ def outlier_rejection(streamlines, threshold=0.2, confidence=0.95,
     paths_length = np.zeros((len(streamlines), nb_samplings_max), dtype=int)
     ordering = np.arange(len(streamlines))
     for ordering_no in range(1, nb_samplings_max+1):
-        print "Ordering #{0}".format(ordering_no)
+        if verbose:
+            print "Ordering #{0}".format(ordering_no)
         rng.shuffle(ordering)
 
         tree_clusters = hqb.cluster(streamlines, ordering=ordering)
