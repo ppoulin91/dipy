@@ -1,9 +1,12 @@
 #! /usr/bin/env python
 
 import os
+import sys
+import itertools
+
 import numpy as np
 import nibabel as nib
-import itertools
+from time import time
 
 from dipy.fixes import argparse
 
@@ -34,6 +37,18 @@ def build_args_parser():
                    help="Enable verbose mode.")
 
     return p
+
+class Timer():
+    def __init__(self, txt):
+        self.txt = txt
+
+    def __enter__(self):
+        self.start = time()
+        print self.txt + "... ",
+        sys.stdout.flush()
+
+    def __exit__(self, type, value, tb):
+        print "{:.2f} sec.".format(time()-self.start)
 
 
 def load_tractogram(filename):
@@ -98,11 +113,30 @@ def create_hist_actor(data, colormap_name="jet"):
 
 def set_threshold_manually(streamlines, outlierness):
     import vtk
-    from dipy.viz import fvtk, actor, window, widget
+    from dipy.viz import fvtk, actor, window
     colormap_name = "jet"
     stream_actor = actor.line(streamlines, colors=fvtk.create_colormap(outlierness, name=colormap_name))
     stream_actor.SetPosition(-np.array(stream_actor.GetCenter()))
+
+    global threshold
+    threshold = 0.4
+
+    streamlines_color = np.zeros(len(streamlines), dtype="float32")
+    streamlines_color[outlierness < threshold] = 1
+    streamlines_color[outlierness >= threshold] = 0
+
+    lut = vtk.vtkLookupTable()
+    lut.SetNumberOfTableValues(2)
+    lut.Build()
+    lut.SetTableValue(0, tuple(fvtk.colors.orange_red) + (1,))
+    lut.SetTableValue(1, tuple(fvtk.colors.green) + (1,))
+    lut.SetTableRange(0, 1)
+
+    stream_split_actor = actor.line(streamlines, colors=streamlines_color, lookup_colormap=lut)
+    #stream_split_actor = actor.line(streamlines, colors=fvtk.create_colormap(outlierness, name=colormap_name))
+    stream_split_actor.SetPosition(-np.array(stream_split_actor.GetCenter()))
     hist_actor = create_hist_actor(outlierness, colormap_name=colormap_name)
+
 
     bg = (0, 0, 0)
     global screen_size
@@ -115,7 +149,7 @@ def set_threshold_manually(streamlines, outlierness):
     show_m.window.AddRenderer(ren)
     ren.background(bg)
     ren.SetViewport(0, 0, 0.7, 1)
-    ren.add(stream_actor)
+    ren.add(stream_split_actor)
     ren.reset_camera_tight()
 
     # Create another renderer for the histogram
@@ -132,23 +166,59 @@ def set_threshold_manually(streamlines, outlierness):
     ren_threshold = window.Renderer()
     show_m.window.AddRenderer(ren_threshold)
     ren_threshold.background(bg)
-    ren_threshold.SetViewport(0.7, 0, 1, 0.4)
-
-    global threshold
-    threshold = 0.2
+    ren_threshold.SetViewport(0.7, 0.4, 1, 0.6)
 
     def apply_threshold(obj, evt):
-        pass
+        global threshold
+        new_threshold = np.round(obj.GetSliderRepresentation().GetValue(), decimals=2)
+        obj.GetSliderRepresentation().SetValue(new_threshold)
+        if threshold != new_threshold:
+            threshold = new_threshold
+
+            # with Timer("indexing"):
+            #     streamlines_color = np.zeros((len(streamlines), 3))
+            #     streamlines_color[outlierness < threshold] = fvtk.colors.green
+            #     streamlines_color[outlierness >= threshold] = fvtk.colors.orange_red
+
+            # with Timer("coloring"):
+            #     colors = []
+            #     for color, streamline in zip(streamlines_color, streamlines):
+            #         colors += [np.array(255 * color, dtype="uint8")] * len(streamline)
+
+            # with Timer("acting1"):
+            #     vtk_colors = actor.numpy_to_vtk_colors(255 * np.array(colors))
+            #     vtk_colors.SetName("Colors")
+            #     stream_split_actor.GetMapper().GetInput().GetPointData().SetScalars(vtk_colors)
+
+            with Timer("indexing"):
+                streamlines_color = np.zeros(len(streamlines), dtype=np.float32)
+                streamlines_color[outlierness < threshold] = 1
+                streamlines_color[outlierness >= threshold] = 0
+
+            with Timer("coloring"):
+                colors = []
+                for color, streamline in zip(streamlines_color, streamlines):
+                    colors += [color] * len(streamline)
+
+            with Timer("acting"):
+                scalars = stream_split_actor.GetMapper().GetInput().GetPointData().GetScalars()
+                for i, c in enumerate(colors):
+                    scalars.SetValue(i, c)
+
+                scalars.Modified()
 
     threshold_slider_rep = vtk.vtkSliderRepresentation3D()
     threshold_slider_rep.SetMinimumValue(0.)
     threshold_slider_rep.SetMaximumValue(1.)
     threshold_slider_rep.SetValue(threshold)
     threshold_slider_rep.SetTitleText("Threshold")
+    threshold_slider_rep.SetTitleHeight(0.05)
+    threshold_slider_rep.SetLabelFormat("%0.2lf")
+    threshold_slider_rep.SetLabelHeight(0.05)
     threshold_slider_rep.GetPoint1Coordinate().SetCoordinateSystemToWorld()
-    threshold_slider_rep.GetPoint1Coordinate().SetValue(0, 0, 0)
+    threshold_slider_rep.GetPoint1Coordinate().SetValue(-10, 0, 0)
     threshold_slider_rep.GetPoint2Coordinate().SetCoordinateSystemToWorld()
-    threshold_slider_rep.GetPoint2Coordinate().SetValue(2, 2, 2)
+    threshold_slider_rep.GetPoint2Coordinate().SetValue(10, 0, 0)
     threshold_slider_rep.SetSliderLength(0.075)
     threshold_slider_rep.SetSliderWidth(0.05)
     threshold_slider_rep.SetEndCapLength(0.05)
@@ -157,28 +227,15 @@ def set_threshold_manually(streamlines, outlierness):
     threshold_slider.SetInteractor(show_m.iren)
     threshold_slider.SetRepresentation(threshold_slider_rep)
     threshold_slider.SetCurrentRenderer(ren_threshold)
-    #threshold_slider.SetAnimationModeToAnimate()
+    threshold_slider.SetAnimationModeToAnimate()
+    threshold_slider.SetNumberOfAnimationSteps(100)
     threshold_slider.EnabledOn()
 
     threshold_slider.AddObserver("InteractionEvent", apply_threshold)
 
-    # threshold_slider = widget.slider(show_m.iren, ren_threshold,
-    #                                  callback=apply_threshold,
-    #                                  min_value=0.,
-    #                                  max_value=1.,
-    #                                  value=threshold,
-    #                                  right_normalized_pos=(.98, 0.5),
-    #                                  label="Threshold",
-    #                                  size=(120, 0), label_format="%0.2lf",
-    #                                  color=(1., 1., 1.),
-    #                                  selected_color=(0.86, 0.33, 1.))
-
-    print repr(ren_threshold)
-    print repr(threshold_slider_rep.GetRenderer())
-    print repr(threshold_slider.GetCurrentRenderer())
     ren_threshold.add(threshold_slider_rep)
-    ren_threshold.add(actor.axes())
-    ren_threshold.reset_camera_tight()
+    ren_threshold.reset_camera_tight(margin_factor=0.85)
+    ren_threshold.SetInteractive(False)
 
     # Create another renderer for the outlierness
     ren_outlierness = window.Renderer()
@@ -186,13 +243,12 @@ def set_threshold_manually(streamlines, outlierness):
     ren_outlierness.background(bg)
     ren_outlierness.SetViewport(0.7, 0, 1, 0.4)
     ren_outlierness.add(stream_actor)
-    ren_outlierness.reset_camera_tight(margin_factor=0.85)
+    ren_outlierness.reset_camera_tight(margin_factor=0.8)
 
     def _window_callback(obj, event):
         global screen_size
         if screen_size != obj.GetSize():
             ren_hist.reset_camera_tight()
-            #threshold_slider.place(ren_threshold)
             screen_size = obj.GetSize()
 
     show_m.add_window_callback(_window_callback)
@@ -200,7 +256,9 @@ def set_threshold_manually(streamlines, outlierness):
     show_m.render()
     show_m.start()
 
-    return [], []
+    inliers = [s for s, keep in zip(streamlines, outlierness < threshold) if keep]
+    outliers = [s for s, keep in zip(streamlines, outlierness >= threshold) if keep]
+    return inliers, outliers
 
 
 def main():
