@@ -306,7 +306,8 @@ def open_file_dialog(file_types=[("All files", "*")]):
 
 
 def save_file_dialog(initial_file='dipy.png', default_ext='.png',
-                     file_types=(("PNG file", "*.png"), ("All Files", "*.*"))):
+                     file_types=(("PNG file", "*.png"), ("All Files", "*.*")),
+                     title="Save as"):
     """ Simple Tk file dialog for saving a file
 
     Parameters
@@ -317,6 +318,8 @@ def save_file_dialog(initial_file='dipy.png', default_ext='.png',
         Default extension to appear in the save dialog.
     file_types : tuples of tuples
         Accepted file types.
+    title : str
+        Title of the dialog box.
 
     Returns
     -------
@@ -328,7 +331,30 @@ def save_file_dialog(initial_file='dipy.png', default_ext='.png',
     root.withdraw()
     file_path = filedialog.asksaveasfilename(initialfile=initial_file,
                                              defaultextension=default_ext,
-                                             filetypes=file_types)
+                                             filetypes=file_types,
+                                             title=title)
+    return file_path
+
+
+def ask_folder_dialog(initial_folder='./dipy/', title="Select folder"):
+    """ Simple Tk file dialog for asking for a folder.
+
+    Parameters
+    ----------
+    initial_folder : str
+        For example ``./dipy/``.
+    title : str
+        Title of the dialog box.
+
+    Returns
+    -------
+    filepath : str
+        Complete filename of selected folder
+    """
+
+    root = tkinter.Tk()
+    root.withdraw()
+    file_path = filedialog.askdirectory(initialdir=initial_folder, title=title)
     return file_path
 
 

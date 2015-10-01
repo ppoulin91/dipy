@@ -3,14 +3,17 @@
 import os
 import sys
 import itertools
+from os.path import join as pjoin
 
 import numpy as np
 import nibabel as nib
-from time import time
 
 from dipy.fixes import argparse
 
 from dipy.segment.clustering import outlier_rejection
+
+from dipy.data import fetch_viz_icons
+fetch_viz_icons()
 
 
 def build_args_parser():
@@ -23,11 +26,15 @@ def build_args_parser():
                    help="Reject streamlines having an outlierness score above this threshold (%%)."
                         "Default: set manually through an interactive display.")
 
+    p.add_argument("--out", default="./outliers/",
+                   help="Output dir where to save all the files. Default: './outliers/'")
+
     p.add_argument("--inliers", help="Filename where to save tractography intliers (.trk)."
                    "Default: append '_inliers' to the tractogram filename")
     p.add_argument("--outliers", help="Filename where to save tractography outliers (.trk)."
                    "Default: append '_outliers' to the tractogram filename")
     p.add_argument("--outlierness", help="Filename where to save the outlierness scores (.csv).")
+    p.add_argument("--histogram", help="Filename where to save the histogram (.png).")
 
     p.add_argument("--confidence_level", type=float, default=0.95,
                    help="Confidence level controlling the number of orderings. Default: 0.95")
@@ -37,18 +44,6 @@ def build_args_parser():
                    help="Enable verbose mode.")
 
     return p
-
-class Timer():
-    def __init__(self, txt):
-        self.txt = txt
-
-    def __enter__(self):
-        self.start = time()
-        print self.txt + "... ",
-        sys.stdout.flush()
-
-    def __exit__(self, type, value, tb):
-        print "{:.2f} sec.".format(time()-self.start)
 
 
 def load_tractogram(filename):
@@ -67,23 +62,15 @@ def append_text_to_filename(filename, text):
     return path + text + ext
 
 
-def create_hist_actor(data, colormap_name="jet"):
-    import vtk
-    from dipy.viz import actor, utils
-
+def create_hist(outlierness, colormap_name="jet"):
     import pylab as plt
-    if not hasattr(plt, 'style'):
-        print "Use Matplotlib >= 1.4 to have better colormap."
-    else:
-        plt.style.use('dark_background')
-
     # Make histogram plot prettier.
     plt.rcParams['font.size'] = 24
     #plt.rcParams['font.weight'] = "bold"
     fig = plt.figure(dpi=300)
     ax = fig.add_subplot(111)
     ax.set_title('Outlierness', fontsize="32", fontweight="bold")
-    n, bins, patches = ax.hist(data, bins=np.linspace(0, 1, 101), linewidth=0)
+    n, bins, patches = ax.hist(outlierness, bins=np.linspace(0, 1, 101), linewidth=0.2)
 
     # Apply colormap to histogram.
     cm = plt.cm.get_cmap(colormap_name)
@@ -99,21 +86,35 @@ def create_hist_actor(data, colormap_name="jet"):
     ax.spines['top'].set_visible(False)
     ax.xaxis.set_ticks_position('bottom')
     ax.yaxis.set_ticks_position('left')
+    return fig
 
+
+def create_hist_actor(outlierness, colormap_name="jet"):
+    import vtk
+    from dipy.viz import actor, utils
+
+    import pylab as plt
+    if not hasattr(plt, 'style'):
+        print "Use Matplotlib >= 1.4 to have better colormap."
+    else:
+        plt.style.use('dark_background')
+
+    fig = create_hist(outlierness, colormap_name)
     arr = utils.matplotlib_figure_to_numpy(fig, dpi=300, transparent=False)
-    plt.close(fig)
     figure_actor = actor.figure(arr, size=100, interpolation='linear')
 
     # Make sure the figure is center is in the middle of the image.
     transform = vtk.vtkTransform()
     transform.Translate(-np.array(figure_actor.GetCenter()))
     figure_actor.SetUserMatrix(transform.GetMatrix())
-    return figure_actor
+    return figure_actor, fig
 
 
-def set_threshold_manually(streamlines, outlierness):
+def interactive_outlier_rejection(streamlines, outlierness, tractogram_filename, hdr):
     import vtk
-    from dipy.viz import fvtk, actor, window
+    from dipy.viz import fvtk, actor, window, widget
+    from dipy.data.fetcher import read_viz_icons
+
     colormap_name = "jet"
     stream_actor = actor.line(streamlines, colors=fvtk.create_colormap(outlierness, name=colormap_name))
     stream_actor.SetPosition(-np.array(stream_actor.GetCenter()))
@@ -133,24 +134,22 @@ def set_threshold_manually(streamlines, outlierness):
     lut.SetTableRange(0, 1)
 
     stream_split_actor = actor.line(streamlines, colors=streamlines_color, lookup_colormap=lut)
-    #stream_split_actor = actor.line(streamlines, colors=fvtk.create_colormap(outlierness, name=colormap_name))
     stream_split_actor.SetPosition(-np.array(stream_split_actor.GetCenter()))
-    hist_actor = create_hist_actor(outlierness, colormap_name=colormap_name)
-
+    hist_actor, hist_fig = create_hist_actor(outlierness, colormap_name=colormap_name)
 
     bg = (0, 0, 0)
     global screen_size
+    screen_size = (0, 0)
     default_ren = window.Renderer()
     default_ren.background(bg)
     show_m = window.ShowManager(default_ren, size=(1200, 900), interactor_style="trackball")
-    screen_size = show_m.iren.GetSize()
 
-    ren = window.Renderer()
-    show_m.window.AddRenderer(ren)
-    ren.background(bg)
-    ren.SetViewport(0, 0, 0.7, 1)
-    ren.add(stream_split_actor)
-    ren.reset_camera_tight()
+    main_ren = window.Renderer()
+    show_m.window.AddRenderer(main_ren)
+    main_ren.background(bg)
+    main_ren.SetViewport(0, 0, 0.7, 1)
+    main_ren.add(stream_split_actor)
+    main_ren.reset_camera_tight()
 
     # Create another renderer for the histogram
     ren_hist = window.Renderer()
@@ -175,37 +174,19 @@ def set_threshold_manually(streamlines, outlierness):
         if threshold != new_threshold:
             threshold = new_threshold
 
-            # with Timer("indexing"):
-            #     streamlines_color = np.zeros((len(streamlines), 3))
-            #     streamlines_color[outlierness < threshold] = fvtk.colors.green
-            #     streamlines_color[outlierness >= threshold] = fvtk.colors.orange_red
+            streamlines_color = np.zeros(len(streamlines), dtype=np.float32)
+            streamlines_color[outlierness < threshold] = 1
+            streamlines_color[outlierness >= threshold] = 0
 
-            # with Timer("coloring"):
-            #     colors = []
-            #     for color, streamline in zip(streamlines_color, streamlines):
-            #         colors += [np.array(255 * color, dtype="uint8")] * len(streamline)
+            colors = []
+            for color, streamline in zip(streamlines_color, streamlines):
+                colors += [color] * len(streamline)
 
-            # with Timer("acting1"):
-            #     vtk_colors = actor.numpy_to_vtk_colors(255 * np.array(colors))
-            #     vtk_colors.SetName("Colors")
-            #     stream_split_actor.GetMapper().GetInput().GetPointData().SetScalars(vtk_colors)
+            scalars = stream_split_actor.GetMapper().GetInput().GetPointData().GetScalars()
+            for i, c in enumerate(colors):
+                scalars.SetValue(i, c)
 
-            with Timer("indexing"):
-                streamlines_color = np.zeros(len(streamlines), dtype=np.float32)
-                streamlines_color[outlierness < threshold] = 1
-                streamlines_color[outlierness >= threshold] = 0
-
-            with Timer("coloring"):
-                colors = []
-                for color, streamline in zip(streamlines_color, streamlines):
-                    colors += [color] * len(streamline)
-
-            with Timer("acting"):
-                scalars = stream_split_actor.GetMapper().GetInput().GetPointData().GetScalars()
-                for i, c in enumerate(colors):
-                    scalars.SetValue(i, c)
-
-                scalars.Modified()
+            scalars.Modified()
 
     threshold_slider_rep = vtk.vtkSliderRepresentation3D()
     threshold_slider_rep.SetMinimumValue(0.)
@@ -245,11 +226,103 @@ def set_threshold_manually(streamlines, outlierness):
     ren_outlierness.add(stream_actor)
     ren_outlierness.reset_camera_tight(margin_factor=0.8)
 
+    # Add a save button.
+    def button_save_callback(obj, event):
+        inliers = [s for s, keep in zip(streamlines, outlierness < threshold) if keep]
+        outliers = [s for s, keep in zip(streamlines, outlierness >= threshold) if keep]
+
+        ftypes = (("Trackvis file", "*.trk"), ("All Files", "*.*"))
+
+        inliers_filename = append_text_to_filename(tractogram_filename, "_inliers")
+        filename = window.save_file_dialog(initial_file=inliers_filename,
+                                           default_ext='.trk',
+                                           file_types=ftypes,
+                                           title="Saving inliers")
+
+        if filename != '':
+            save_tractogram(filename, inliers, [], [], hdr)
+            print('Inliers saved in: ' + filename)
+
+        outliers_filename = append_text_to_filename(tractogram_filename, "_outliers")
+        filename = window.save_file_dialog(initial_file=outliers_filename,
+                                           default_ext='.trk',
+                                           file_types=ftypes,
+                                           title="Saving outliers")
+
+        if filename != '':
+            save_tractogram(filename, outliers, [], [], hdr)
+            print('Outliers saved in: ' + filename)
+
+        # Save outlierness in a csv file.
+        ftypes = (("CSV", "*.csv"), ("All Files", "*.*"))
+        outliersness_filename = append_text_to_filename(tractogram_filename, "_outlierness")
+        filename = window.save_file_dialog(initial_file=outliersness_filename,
+                                           default_ext='.csv',
+                                           file_types=ftypes,
+                                           title="Saving outlierness scores")
+
+        if filename != '':
+            np.savetxt(filename, outlierness, delimiter=",")
+            print('Outlierness scores saved in: ' + filename)
+
+        # Save snapshot of the histogram
+        ftypes = (("PNG", "*.png"), ("All Files", "*.*"))
+        hist_filename = append_text_to_filename(tractogram_filename, "_hist")
+        filename = window.save_file_dialog(initial_file=hist_filename,
+                                           default_ext='.png',
+                                           file_types=ftypes,
+                                           title="Saving histogram")
+
+        if filename != '':
+            hist_fig.savefig(filename, dpi=300, transparent=False, bbox_inches='tight', pad_inches=0.)
+            print('Histogram saved in: ' + filename)
+
+    # Add a saveall button.
+    def button_saveall_callback(obj, event):
+        inliers = [s for s, keep in zip(streamlines, outlierness < threshold) if keep]
+        outliers = [s for s, keep in zip(streamlines, outlierness >= threshold) if keep]
+
+        folder = window.ask_folder_dialog(initial_folder=os.path.dirname(tractogram_filename))
+
+        if folder != '':
+            try:
+                os.makedirs(folder)
+            except OSError:
+                pass
+
+            filename = pjoin(folder, "inliers.trk")
+            save_tractogram(filename, inliers, [], [], hdr)
+            print('Inliers saved in: ' + filename)
+
+            filename = pjoin(folder, "outliers.trk")
+            save_tractogram(filename, outliers, [], [], hdr)
+            print('Outliers saved in: ' + filename)
+
+            filename = pjoin(folder, "outlierness.csv")
+            np.savetxt(filename, outlierness, delimiter=",")
+            print('Outlierness scores saved in: ' + filename)
+
+            filename = pjoin(folder, "histogram.png")
+            hist_fig.savefig(filename, dpi=300, transparent=False, bbox_inches='tight', pad_inches=0.)
+            print('Histogram saved in: ' + filename)
+
+    button_png = read_viz_icons(fname='floppy-disk.png')
+    save_button = widget.button(show_m.iren, main_ren,
+                                button_save_callback,
+                                button_png, (.05, .98), (50, 50))
+
+    button_png = read_viz_icons(fname='folder.png')
+    save_all_button = widget.button(show_m.iren, main_ren,
+                                    button_saveall_callback,
+                                    button_png, (.05, .88), (50, 50))
+
     def _window_callback(obj, event):
         global screen_size
-        if screen_size != obj.GetSize():
-            ren_hist.reset_camera_tight()
-            screen_size = obj.GetSize()
+        #if screen_size != obj.GetSize():
+        ren_hist.reset_camera_tight()
+        save_button.place(main_ren)
+        save_all_button.place(main_ren)
+        screen_size = obj.GetSize()
 
     show_m.add_window_callback(_window_callback)
     show_m.initialize()
@@ -272,23 +345,34 @@ def main():
                                                        return_outlierness=True, verbose=args.verbose)
 
     if args.threshold == 0.:
-        inliers, outliers = set_threshold_manually(streamlines, outlierness)
+        inliers, outliers = interactive_outlier_rejection(streamlines, outlierness, args.tractogram, hdr)
+        return
+
+    # Create output folder, if needed.
+    try:
+        os.mkdir(args.out)
+    except OSError:
+        pass
 
     # Save results
     if args.outlierness is not None:
-        np.savetxt(args.outlierness.split(".csv")[0] + ".csv", outlierness, delimiter=",")
+        np.savetxt(pjoin(args.out, args.outlierness.split(".csv")[0] + ".csv"), outlierness, delimiter=",")
+
+    if args.histogram is not None:
+        fig = create_hist(outlierness, colormap_name="jet")
+        fig.savefig(pjoin(args.out, args.histogram.split(".png")[0] + ".png"), dpi=300, transparent=False, bbox_inches='tight', pad_inches=0.)
 
     inliers_filename = args.inliers
     if args.inliers is None:
         inliers_filename = append_text_to_filename(args.tractogram, "_inliers")
 
-    save_tractogram(inliers_filename, inliers, [], [], hdr)
+    save_tractogram(pjoin(args.out, inliers_filename), inliers, [], [], hdr)
 
     outliers_filename = args.outliers
     if args.outliers is None:
         outliers_filename = append_text_to_filename(args.tractogram, "_outliers")
 
-    save_tractogram(outliers_filename, outliers, [], [], hdr)
+    save_tractogram(pjoin(args.out, outliers_filename), outliers, [], [], hdr)
 
 
 if __name__ == "__main__":
