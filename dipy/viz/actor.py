@@ -1022,7 +1022,10 @@ def figure(pic, size=1, interpolation='nearest'):
             vtk_image_data.GetPointData().SetScalars(uchar_array)
 
     image_actor = vtk.vtkImageActor()
-    image_actor.SetInputData(vtk_image_data)
+    if major_version > 5:
+        image_actor.SetInputData(vtk_image_data)
+    else:
+        image_actor.SetInput(vtk_image_data)
 
     if interpolation == 'nearest':
         image_actor.GetProperty().SetInterpolationTypeToNearest()
