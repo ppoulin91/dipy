@@ -1,0 +1,237 @@
+#! /usr/bin/env python
+
+import os
+import numpy as np
+import nibabel as nib
+import itertools
+
+from dipy.fixes import argparse
+
+from dipy.segment.clustering import outlier_rejection
+
+
+def build_args_parser():
+    description = "Detect tractography outliers in a tractogram."
+    p = argparse.ArgumentParser(description=description)
+
+    p.add_argument("tractogram", help="File containing streamlines (.trk).")
+
+    p.add_argument("--threshold", type=float, default=0,
+                   help="Reject streamlines having an outlierness score above this threshold (%%)."
+                        "Default: set manually through an interactive display.")
+
+    p.add_argument("--inliers", help="Filename where to save tractography intliers (.trk)."
+                   "Default: append '_inliers' to the tractogram filename")
+    p.add_argument("--outliers", help="Filename where to save tractography outliers (.trk)."
+                   "Default: append '_outliers' to the tractogram filename")
+    p.add_argument("--outlierness", help="Filename where to save the outlierness scores (.csv).")
+
+    p.add_argument("--confidence_level", type=float, default=0.95,
+                   help="Confidence level controlling the number of orderings. Default: 0.95")
+
+    p.add_argument("--seed", type=int, default=1234, help="Seed used to shuffle orderings. Default: 1234")
+    p.add_argument('-v', "--verbose", action="store_true",
+                   help="Enable verbose mode.")
+
+    return p
+
+
+def load_tractogram(filename):
+    streams, hdr = nib.trackvis.read(filename)
+    streamlines, colors, properties = zip(*streams)
+    return streamlines, colors, properties, hdr
+
+
+def save_tractogram(filename, streamlines, colors, properties, hdr):
+    data = itertools.izip_longest(streamlines, colors, properties)
+    nib.trackvis.write(filename.split(".trk")[0] + ".trk", data, hdr)
+
+
+def append_text_to_filename(filename, text):
+    path, ext = os.path.splitext(filename)
+    return path + text + ext
+
+
+def create_hist_actor(data, colormap_name="jet"):
+    import vtk
+    from dipy.viz import actor, utils
+
+    import pylab as plt
+    if not hasattr(plt, 'style'):
+        print "Use Matplotlib >= 1.4 to have better colormap."
+    else:
+        plt.style.use('dark_background')
+
+    # Make histogram plot prettier.
+    plt.rcParams['font.size'] = 24
+    #plt.rcParams['font.weight'] = "bold"
+    fig = plt.figure(dpi=300)
+    ax = fig.add_subplot(111)
+    ax.set_title('Outlierness', fontsize="32", fontweight="bold")
+    n, bins, patches = ax.hist(data, bins=np.linspace(0, 1, 101), linewidth=0)
+
+    # Apply colormap to histogram.
+    cm = plt.cm.get_cmap(colormap_name)
+    bin_centers = 0.5 * (bins[:-1] + bins[1:])
+    # scale values to interval [0,1]
+    col = bin_centers - min(bin_centers)
+    col /= max(col)
+
+    for c, p in zip(col, patches):
+        plt.setp(p, 'facecolor', cm(c))
+
+    ax.spines['right'].set_visible(False)
+    ax.spines['top'].set_visible(False)
+    ax.xaxis.set_ticks_position('bottom')
+    ax.yaxis.set_ticks_position('left')
+
+    arr = utils.matplotlib_figure_to_numpy(fig, dpi=300, transparent=False)
+    plt.close(fig)
+    figure_actor = actor.figure(arr, size=100, interpolation='linear')
+
+    # Make sure the figure is center is in the middle of the image.
+    transform = vtk.vtkTransform()
+    transform.Translate(-np.array(figure_actor.GetCenter()))
+    figure_actor.SetUserMatrix(transform.GetMatrix())
+    return figure_actor
+
+
+def set_threshold_manually(streamlines, outlierness):
+    import vtk
+    from dipy.viz import fvtk, actor, window, widget
+    colormap_name = "jet"
+    stream_actor = actor.line(streamlines, colors=fvtk.create_colormap(outlierness, name=colormap_name))
+    stream_actor.SetPosition(-np.array(stream_actor.GetCenter()))
+    hist_actor = create_hist_actor(outlierness, colormap_name=colormap_name)
+
+    bg = (0, 0, 0)
+    global screen_size
+    default_ren = window.Renderer()
+    default_ren.background(bg)
+    show_m = window.ShowManager(default_ren, size=(1200, 900), interactor_style="trackball")
+    screen_size = show_m.iren.GetSize()
+
+    ren = window.Renderer()
+    show_m.window.AddRenderer(ren)
+    ren.background(bg)
+    ren.SetViewport(0, 0, 0.7, 1)
+    ren.add(stream_actor)
+    ren.reset_camera_tight()
+
+    # Create another renderer for the histogram
+    ren_hist = window.Renderer()
+    show_m.window.AddRenderer(ren_hist)
+    ren_hist.projection("parallel")
+    ren_hist.background(bg)
+    ren_hist.SetViewport(0.7, 0.6, 1, 1)
+    ren_hist.add(hist_actor)
+    ren_hist.reset_camera_tight(margin_factor=0.85)
+    ren_hist.SetInteractive(False)
+
+    # Create another renderer for the threshold slider
+    ren_threshold = window.Renderer()
+    show_m.window.AddRenderer(ren_threshold)
+    ren_threshold.background(bg)
+    ren_threshold.SetViewport(0.7, 0, 1, 0.4)
+
+    global threshold
+    threshold = 0.2
+
+    def apply_threshold(obj, evt):
+        pass
+
+    threshold_slider_rep = vtk.vtkSliderRepresentation3D()
+    threshold_slider_rep.SetMinimumValue(0.)
+    threshold_slider_rep.SetMaximumValue(1.)
+    threshold_slider_rep.SetValue(threshold)
+    threshold_slider_rep.SetTitleText("Threshold")
+    threshold_slider_rep.GetPoint1Coordinate().SetCoordinateSystemToWorld()
+    threshold_slider_rep.GetPoint1Coordinate().SetValue(0, 0, 0)
+    threshold_slider_rep.GetPoint2Coordinate().SetCoordinateSystemToWorld()
+    threshold_slider_rep.GetPoint2Coordinate().SetValue(2, 2, 2)
+    threshold_slider_rep.SetSliderLength(0.075)
+    threshold_slider_rep.SetSliderWidth(0.05)
+    threshold_slider_rep.SetEndCapLength(0.05)
+
+    threshold_slider = vtk.vtkSliderWidget()
+    threshold_slider.SetInteractor(show_m.iren)
+    threshold_slider.SetRepresentation(threshold_slider_rep)
+    threshold_slider.SetCurrentRenderer(ren_threshold)
+    #threshold_slider.SetAnimationModeToAnimate()
+    threshold_slider.EnabledOn()
+
+    threshold_slider.AddObserver("InteractionEvent", apply_threshold)
+
+    # threshold_slider = widget.slider(show_m.iren, ren_threshold,
+    #                                  callback=apply_threshold,
+    #                                  min_value=0.,
+    #                                  max_value=1.,
+    #                                  value=threshold,
+    #                                  right_normalized_pos=(.98, 0.5),
+    #                                  label="Threshold",
+    #                                  size=(120, 0), label_format="%0.2lf",
+    #                                  color=(1., 1., 1.),
+    #                                  selected_color=(0.86, 0.33, 1.))
+
+    print repr(ren_threshold)
+    print repr(threshold_slider_rep.GetRenderer())
+    print repr(threshold_slider.GetCurrentRenderer())
+    ren_threshold.add(threshold_slider_rep)
+    ren_threshold.add(actor.axes())
+    ren_threshold.reset_camera_tight()
+
+    # Create another renderer for the outlierness
+    ren_outlierness = window.Renderer()
+    show_m.window.AddRenderer(ren_outlierness)
+    ren_outlierness.background(bg)
+    ren_outlierness.SetViewport(0.7, 0, 1, 0.4)
+    ren_outlierness.add(stream_actor)
+    ren_outlierness.reset_camera_tight(margin_factor=0.85)
+
+    def _window_callback(obj, event):
+        global screen_size
+        if screen_size != obj.GetSize():
+            ren_hist.reset_camera_tight()
+            #threshold_slider.place(ren_threshold)
+            screen_size = obj.GetSize()
+
+    show_m.add_window_callback(_window_callback)
+    show_m.initialize()
+    show_m.render()
+    show_m.start()
+
+    return [], []
+
+
+def main():
+    parser = build_args_parser()
+    args = parser.parse_args()
+
+    streamlines, colors, properties, hdr = load_tractogram(args.tractogram)
+
+    inliers, outliers, outlierness = outlier_rejection(streamlines, threshold=args.threshold,
+                                                       confidence=args.confidence_level, seed=args.seed,
+                                                       return_outlierness=True, verbose=args.verbose)
+
+    if args.threshold == 0.:
+        inliers, outliers = set_threshold_manually(streamlines, outlierness)
+
+    # Save results
+    if args.outlierness is not None:
+        np.savetxt(args.outlierness.split(".csv")[0] + ".csv", outlierness, delimiter=",")
+
+    inliers_filename = args.inliers
+    if args.inliers is None:
+        inliers_filename = append_text_to_filename(args.tractogram, "_inliers")
+
+    save_tractogram(inliers_filename, inliers, [], [], hdr)
+
+    outliers_filename = args.outliers
+    if args.outliers is None:
+        outliers_filename = append_text_to_filename(args.tractogram, "_outliers")
+
+    save_tractogram(outliers_filename, outliers, [], [], hdr)
+
+
+if __name__ == "__main__":
+    main()
