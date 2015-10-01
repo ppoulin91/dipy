@@ -441,11 +441,11 @@ def matplotlib_figure_to_numpy(fig, dpi=100, fname=None, flip_up_down=True,
         with InTemporaryDirectory() as tmpdir:
             fname = os.path.join(tmpdir, 'tmp.png')
             fig.savefig(fname, dpi=dpi, transparent=transparent,
-                        bbox_inches='tight', pad_inches=0)
+                        bbox_inches='tight', pad_inches=0.)
             arr = imread(fname)
     else:
         fig.savefig(fname, dpi=dpi, transparent=transparent,
-                    bbox_inches='tight', pad_inches=0)
+                    bbox_inches='tight', pad_inches=0.)
         arr = imread(fname)
 
     if flip_up_down:
