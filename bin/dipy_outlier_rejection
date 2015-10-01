@@ -13,7 +13,9 @@ from dipy.fixes import argparse
 from dipy.segment.clustering import outlier_rejection
 
 from dipy.data import fetch_viz_icons
-fetch_viz_icons()
+from dipy.data.fetcher import dipy_home
+if not os.path.isdir(pjoin(dipy_home, 'icons')):
+    fetch_viz_icons()
 
 
 def build_args_parser():
