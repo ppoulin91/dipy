@@ -15,11 +15,10 @@ from dipy.utils.optpkg import optional_package
 # Allow import, but disable doctests if we don't have vtk
 vtk, have_vtk, setup_module = optional_package('vtk')
 ns, have_numpy_support, _ = optional_package('vtk.util.numpy_support')
-_, have_imread, _ = optional_package('Image')
 matplotlib, have_mpl, _ = optional_package("matplotlib")
 
-if have_imread:
-    from scipy.misc import imread
+if have_mpl:
+    from matplotlib.pylab import imread
 
 
 def vtk_matrix_to_numpy(matrix):
@@ -442,11 +441,11 @@ def matplotlib_figure_to_numpy(fig, dpi=100, fname=None, flip_up_down=True,
             fname = os.path.join(tmpdir, 'tmp.png')
             fig.savefig(fname, dpi=dpi, transparent=transparent,
                         bbox_inches='tight', pad_inches=0.)
-            arr = imread(fname)
+            arr = (imread(fname) * 255).astype('uint8')
     else:
         fig.savefig(fname, dpi=dpi, transparent=transparent,
                     bbox_inches='tight', pad_inches=0.)
-        arr = imread(fname)
+        arr = (imread(fname) * 255).astype('uint8')
 
     if flip_up_down:
         arr = np.flipud(arr)

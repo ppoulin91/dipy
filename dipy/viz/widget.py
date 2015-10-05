@@ -132,13 +132,16 @@ def slider(iren, ren, callback, min_value=0, max_value=255, value=125,
 
 def button_display_coordinates(renderer, normalized_display_position, size):
     upperRight = vtk.vtkCoordinate()
-    upperRight.SetCoordinateSystemToNormalizedDisplay()
+    #upperRight.SetCoordinateSystemToNormalizedDisplay()
+    upperRight.SetCoordinateSystemToNormalizedViewport()
     upperRight.SetValue(normalized_display_position[0],
                         normalized_display_position[1])
     bds = [0.0] * 6
     bds[0] = upperRight.GetComputedDisplayValue(renderer)[0] - size[0]
+    #bds[0] = upperRight.GetComputedViewportValue(renderer)[0] - size[0]
     bds[1] = bds[0] + size[0]
     bds[2] = upperRight.GetComputedDisplayValue(renderer)[1] - size[1]
+    #bds[2] = upperRight.GetComputedViewportValue(renderer)[1] - size[1]
     bds[3] = bds[2] + size[1]
 
     return bds
@@ -193,7 +196,6 @@ def button(iren, ren, callback, fname, right_normalized_pos=(.98, .9),
     class ButtonWidget(vtk.vtkButtonWidget):
 
         def place(self, renderer):
-
             bds = button_display_coordinates(renderer, right_normalized_pos,
                                              size)
             self.GetRepresentation().SetPlaceFactor(1)
@@ -201,6 +203,7 @@ def button(iren, ren, callback, fname, right_normalized_pos=(.98, .9),
             self.On()
 
     button = ButtonWidget()
+    button.SetDefaultRenderer(ren)
     button.SetInteractor(iren)
     button.SetRepresentation(button_rep)
     button.AddObserver(vtk.vtkCommand.StateChangedEvent, callback)
