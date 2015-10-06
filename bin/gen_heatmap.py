@@ -1,8 +1,6 @@
 #! /usr/bin/env python
 
-import os
 import itertools
-from os.path import join as pjoin
 
 import numpy as np
 import nibabel as nib
@@ -11,12 +9,7 @@ from dipy.fixes import argparse
 from dipy.tracking.utils import density_map
 from dipy.tracking.streamline import set_number_of_points
 
-from qb_utils import perform_clustering
-
-from dipy.data import fetch_viz_icons
-from dipy.data.fetcher import dipy_home
-if not os.path.isdir(pjoin(dipy_home, 'icons')):
-    fetch_viz_icons()
+from dipy.segment.clustering import QuickBundles, quickbundles_with_merging
 
 
 def build_args_parser():
@@ -61,6 +54,17 @@ def save_tractogram(filename, streamlines, colors, properties, hdr, points_space
 def save_nifti(filename, heatmap, affine):
     img = nib.Nifti1Image(heatmap, affine)
     nib.save(img, filename)
+
+
+def perform_clustering(streamlines, threshold, ordering, method="QB"):
+    if method == "QB":
+        qb = QuickBundles(threshold=threshold)
+        clusters = qb.cluster(streamlines, ordering=ordering)
+    elif method == "QBm":
+        qb = QuickBundles(threshold=threshold)
+        clusters = quickbundles_with_merging(streamlines, qb, ordering=ordering)
+
+    return clusters
 
 
 def fuse_centroids(streamlines, threshold, orderings, method="QB", verbose=False):
