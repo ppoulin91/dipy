@@ -107,6 +107,7 @@ def test_quickbundles_2D():
     for cluster in clusters:
         subclusters = quickbundles(data, metric, threshold=0,
                                    ordering=cluster.indices)
+        subclusters.refdata = None  # Use indices instead
         assert_equal(len(subclusters), len(cluster))
         assert_equal(sorted(itertools.chain(*subclusters)),
                      sorted(cluster.indices))
