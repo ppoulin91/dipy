@@ -641,7 +641,8 @@ class HierarchicalQuickBundles(Clustering):
             Result of the clustering.
         """
         # QuickBundles threshold decreases as we go down in the hierarchy.
-        reduction_factor = 0.2  # TODO: explore what would be an optimal reduction scheme
+        #reduction_factor = 1  # TODO: explore what would be an optimal reduction scheme
+        reduction_factor = 2
 
         # Simple heuristic to determine the initial threshold, we take
         # the bounding box diagonal length.
@@ -657,14 +658,16 @@ class HierarchicalQuickBundles(Clustering):
                 break
 
             root = HierarchicalCluster(clusters[0], threshold=threshold)
-            threshold -= reduction_factor  # Linear reduction
+            #threshold -= reduction_factor  # Linear reduction
+            threshold /= reduction_factor  # Linear reduction
 
         nodes = [root]
         while len(nodes) > 0:
             next_nodes = []
             for node in nodes:
                 clusters = []
-                threshold = max(node.threshold-reduction_factor, self.min_threshold)
+                #threshold = max(node.threshold-reduction_factor, self.min_threshold)
+                threshold = max(node.threshold/reduction_factor, self.min_threshold)
                 indices = node.indices
                 np.random.shuffle(indices)
                 while threshold >= self.min_threshold:
@@ -674,7 +677,8 @@ class HierarchicalQuickBundles(Clustering):
                     if len(clusters) > 1:
                         break
 
-                    threshold -= reduction_factor  # Linear reduction
+                    #threshold -= reduction_factor  # Linear reduction
+                    threshold /= reduction_factor  # Exponential reduction
 
                 # We do not further down the hierarchy.
                 if len(clusters) <= 1:
