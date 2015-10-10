@@ -1,7 +1,10 @@
 import os
 import numpy as np
 
+from dipy.viz import fvtk
 from dipy.viz import actor, window, utils
+
+from nose.tools import assert_true
 
 import numpy.testing as npt
 from nibabel.tmpdirs import TemporaryDirectory
@@ -327,6 +330,7 @@ def test_figure():
 def test_text_3d():
     ren = window.Renderer()
 
+    # To help visualize the text positions.
     grid_line = actor.line([np.array([[-1, -1, 0],
                                       [1, -1, 0],
                                       [1, 1, 0],
@@ -338,29 +342,81 @@ def test_text_3d():
                                       [1, 0, 0]], dtype=float)], colors=(1., 1., 1.))
     ren.add(grid_line)
 
-    ren.add(actor.text_3d("TestA", position=(-1, 1, 0), color=(1, 0, 0), font_size=0.2,
-                          justification="left", vertical_justification="top"))
-    ren.add(actor.text_3d("TestB", position=(0, 1, 0), color=(0, 1, 0), font_size=0.2,
-                          justification="center", vertical_justification="top"))
-    ren.add(actor.text_3d("TestC", position=(1, 1, 0), color=(0, 0, 1), font_size=0.2,
-                          justification="right", vertical_justification="top"))
+    # texts = ["AAAA", "B", "C", "D", "E", "F", "G", "H", "I"]
+    # colors = fvtk.create_colormap(np.arange(len(texts)))
+    # positions = [(-1, 1, 0), (0, 1, 0), (1, 1, 0),
+    #              (-1, 0, 0), (0, 0, 0), (1, 0, 0),
+    #              (-1, -1, 0), (0, -1, 0), (1, -1, 0)]
 
-    ren.add(actor.text_3d("TestA", position=(-1, 0, 0), color=(1, 1, 0), font_size=0.2,
-                          justification="left", vertical_justification="middle"))
-    ren.add(actor.text_3d("TestB", position=(0, 0, 0), color=(0, 1, 1), font_size=0.2,
-                          justification="center", vertical_justification="middle"))
-    ren.add(actor.text_3d("TestC", position=(1, 0, 0), color=(1, 0, 1), font_size=0.2,
-                          justification="right", vertical_justification="middle"))
+    # texts_actors = []
+    # for txt, pos, color in zip(texts, positions, colors):
+    #     for justification in ["left", "center", "right"]:
+    #         for vertical_justification in ["top", "middle", "bottom"]:
+    #             text_actor = actor.text_3d(txt, position=pos, color=color,
+    #                                        font_size=0.2,
+    #                                        justification=justification,
+    #                                        vertical_justification=vertical_justification)
+    #             texts_actors.append(text_actor)
 
-    ren.add(actor.text_3d("TestA", position=(-1, -1, 0), color=(1, 0, 1), font_size=0.2,
-                          justification="left", vertical_justification="bottom"))
-    ren.add(actor.text_3d("TestB", position=(0, -1, 0), color=(1, 1, 0), font_size=0.2,
-                          justification="center", vertical_justification="bottom"))
-    ren.add(actor.text_3d("TestC", position=(1, -1, 0), color=(0, 1, 1), font_size=0.2,
-                          justification="right", vertical_justification="bottom"))
+    texts = []
+    # Top-right
+    texts += [actor.text_3d("TestA", position=(-1, 1, 0), color=(1, 0, 0), font_size=0.2,
+                            justification="left", vertical_justification="top")]
+    #x1, x2, y1, y2, z1, z2 = texts[-1].GetBounds()
+    #print x1, x2, y1, y2, z1, z2
+    #assert_true(x1 >= -1 and x2 > -1 and y1 <= 1 and y2 <= 1)
 
-    ren.add(actor.axes())
+    texts += [actor.text_3d("TestB", position=(0, 1, 0), color=(0, 1, 0), font_size=0.2,
+                            justification="center", vertical_justification="top")]
+    texts += [actor.text_3d("TestC", position=(1, 1, 0), color=(0, 0, 1), font_size=0.2,
+                            justification="right", vertical_justification="top")]
+
+    texts += [actor.text_3d("TestA", position=(-1, 0, 0), color=(1, 1, 0), font_size=0.2,
+                            justification="left", vertical_justification="middle")]
+    texts += [actor.text_3d("TestB", position=(0, 0, 0), color=(0, 1, 1), font_size=0.2,
+                            justification="center", vertical_justification="middle")]
+    texts += [actor.text_3d("TestC", position=(1, 0, 0), color=(1, 0, 1), font_size=0.2,
+                            justification="right", vertical_justification="middle")]
+
+    texts += [actor.text_3d("TestA", position=(-1, -1, 0), color=(1, 0, 1), font_size=0.2,
+                            justification="left", vertical_justification="bottom")]
+    texts += [actor.text_3d("TestB", position=(0, -1, 0), color=(1, 1, 0), font_size=0.2,
+                            justification="center", vertical_justification="bottom")]
+    texts += [actor.text_3d("TestC", position=(1, -1, 0), color=(0, 1, 1), font_size=0.2,
+                            justification="right", vertical_justification="bottom")]
+
+
+    # Draw bounds
+    def draw_bounds(act, color=(1, 0, 0), linewidth=1):
+        x1, x2, y1, y2, z1, z2 = act.GetBounds()
+        lines = [np.array([[x1, y1, z1],
+                           [x1, y2, z1],
+                           [x2, y2, z1],
+                           [x2, y1, z1],
+                           [x1, y1, z1]], dtype=float),
+                 np.array([[x1, y1, z2],
+                           [x1, y2, z2],
+                           [x2, y2, z2],
+                           [x2, y1, z2],
+                           [x2, y1, z2]], dtype=float),
+                 np.array([[x1, y1, z1],
+                           [x1, y1, z2]], dtype=float),
+                 np.array([[x1, y2, z1],
+                           [x1, y2, z2]], dtype=float),
+                 np.array([[x2, y2, z1],
+                           [x2, y2, z2]], dtype=float),
+                 np.array([[x2, y1, z1],
+                           [x2, y1, z2]], dtype=float)]
+
+        return actor.line(lines, colors=color, linewidth=linewidth)
+
+    ren.add(draw_bounds(texts[0]))
+
+    ren.add(*texts)
     ren.reset_camera()
+
+    arr = window.snapshot(ren)
+    report = window.analyze_snapshot(arr, find_objects=True)
 
     show_m = window.ShowManager(ren)
     show_m.start()
@@ -379,7 +435,7 @@ def test_text_3d():
                                       [1, 0, 0]], dtype=float)], colors=(1., 1., 1.))
     ren.add(grid_line)
 
-    ren.add(actor.text_3d("TestA\nlines\nvery long long!", position=(-1, 1, 0), color=(1, 0, 0), font_size=0.2,
+    ren.add(actor.text_3d("TestA\nlines\nvery long long!", position=(-1, 1, 0), color=(1, 0, 0), font_size=1,
                           justification="left", vertical_justification="top"))
     ren.add(actor.text_3d("TestB", position=(0, 1, 0), color=(0, 1, 0), font_size=0.2,
                           justification="center", vertical_justification="top"))
@@ -407,5 +463,4 @@ def test_text_3d():
     show_m.start()
 
 if __name__ == "__main__":
-    test_text_3d()
-    #npt.run_module_suite()
+    npt.run_module_suite()

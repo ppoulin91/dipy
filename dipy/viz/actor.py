@@ -865,6 +865,17 @@ def text_3d(text, position=(0, 0, 0), color=(1, 1, 1),
             bold=False, italic=False, shadow=False):
 
     class TextActor3D(vtk.vtkTextActor3D):
+        def __init__(self, default_font_size=48):
+            """
+            Parameters
+            ----------
+            default_font_size : int (optional)
+                Font size when actor's scale is (1, 1, 1).
+            """
+            self.scale = np.ones(3)
+            self.default_font_size = default_font_size
+            self.GetTextProperty().SetFontSize(self.default_font_size)
+
         def message(self, text):
             self.set_message(text)
 
@@ -876,13 +887,11 @@ def text_3d(text, position=(0, 0, 0), color=(1, 1, 1),
             return self.GetInput()
 
         def font_size(self, size):
-            self.GetTextProperty().SetFontSize(24)
-            text_actor.SetScale((1./24.*size,)*3)
+            self.scale = np.ones(3) * (size / self.default_font_size)
             self._update_user_matrix()
 
         def font_family(self, family='Arial'):
             self.GetTextProperty().SetFontFamilyToArial()
-            #self._update_user_matrix()
 
         def justification(self, justification):
             tprop = self.GetTextProperty()
@@ -933,7 +942,7 @@ def text_3d(text, position=(0, 0, 0), color=(1, 1, 1),
         def set_position(self, position):
             self.SetPosition(position)
 
-        def get_position(self, position):
+        def get_position(self):
             return self.GetPosition()
 
         def _update_user_matrix(self):
@@ -951,17 +960,21 @@ def text_3d(text, position=(0, 0, 0), color=(1, 1, 1),
             elif tprop.GetJustification() == vtk.VTK_TEXT_CENTERED:
                 user_matrix[:3, -1] += (-(text_bounds[0]+(text_bounds[1]-text_bounds[0])/2.), 0, 0)
             elif tprop.GetJustification() == vtk.VTK_TEXT_RIGHT:
-                user_matrix[:3, -1] += (-text_bounds[1], 0, 0)
+                user_matrix[:3, -1] += (-text_bounds[1]+1, 0, 0)
 
             if tprop.GetVerticalJustification() == vtk.VTK_TEXT_BOTTOM:
                 user_matrix[:3, -1] += (0, -text_bounds[2], 0)
             elif tprop.GetVerticalJustification() == vtk.VTK_TEXT_CENTERED:
                 user_matrix[:3, -1] += (0, -(text_bounds[2]+(text_bounds[3]-text_bounds[2])/2), 0)
             elif tprop.GetVerticalJustification() == vtk.VTK_TEXT_TOP:
-                user_matrix[:3, -1] += (0, -text_bounds[3], 0)
+                user_matrix[:3, -1] += (0, -text_bounds[3]-1, 0)
 
-            user_matrix[:3, -1] *= self.GetScale()
+            user_matrix[:3, -1] *= self.scale
+            self.SetScale(self.scale)
             self.SetUserMatrix(numpy_to_vtk_matrix(user_matrix))
+
+            x1, x2, y1, y2, z1, z2 = self.GetBounds()
+            text_bounds = x1, x2, y1, y2
 
     text_actor = TextActor3D()
     text_actor.message(text)
