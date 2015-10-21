@@ -250,14 +250,26 @@ def test_quickbundles_with_not_order_invariant_metric():
 
 
 def test_quickbundles_memory_leaks():
-    qb = QuickBundles(threshold=2*threshold)
+    rng = np.random.RandomState(1234)
+    NB_STREAMLINES = 100000
+    data = [rng.randn(rng.randint(10, 100), 3) for _ in range(NB_STREAMLINES)]
+
+    qb = QuickBundles(threshold=2)
 
     type_name_pattern = "memoryview"
     initial_types_refcount = get_type_refcount(type_name_pattern)
+    list_refcount_before = get_type_refcount("list")["list"]
 
-    qb.cluster(data)
+    clusters = qb.cluster(data)
+
+    list_refcount_after = get_type_refcount("list")["list"]
     # At this point, all memoryviews created during clustering should be freed.
     assert_equal(get_type_refcount(type_name_pattern), initial_types_refcount)
+    del clusters
+
+    # Calling `qb.cluster` should increase the refcount of `list` by one
+    # since we kept the returned value (a ClusterMap contains a list of the centroids).
+    assert_equal(list_refcount_after, list_refcount_before+1)
 
 
 if __name__ == '__main__':
