@@ -9,7 +9,8 @@ from nose.tools import assert_true, assert_equal, assert_almost_equal
 from numpy.testing import (assert_array_equal, assert_array_almost_equal,
                            assert_raises, run_module_suite)
 
-from dipy.tracking.streamline import (set_number_of_points,
+from dipy.tracking.streamline import (Streamlines,
+                                      set_number_of_points,
                                       length as ds_length,
                                       relist_streamlines,
                                       unlist_streamlines,
@@ -293,6 +294,16 @@ def test_set_number_of_points():
     assert_equal(len(set_number_of_points(streamlines_readonly, nb_points=42)),
                  len(streamlines_readonly))
 
+    # Test resampling of Streamlines object
+    nb_points = 12
+    streamlines_obj = Streamlines(streamlines)
+    rstreamlines_cython = set_number_of_points(streamlines, nb_points)
+    rstreamlines_obj_cython = set_number_of_points(streamlines_obj, nb_points)
+    assert_true(isinstance(rstreamlines_obj_cython, Streamlines))
+
+    for s1, s2 in zip(rstreamlines_cython, rstreamlines_obj_cython):
+        assert_array_equal(s1, s2)
+
 
 def test_set_number_of_points_memory_leaks():
     # Test some dtypes
@@ -328,6 +339,18 @@ def test_set_number_of_points_memory_leaks():
     # Calling `set_number_of_points` should increase the refcount of `list` by one
     # since we kept the returned value.
     assert_equal(list_refcount_after, list_refcount_before+1)
+
+    # Test resampling of Streamlines object
+    nb_points = 12
+    streamlines_obj = Streamlines(streamlines)
+
+    list_refcount_before = get_type_refcount()["list"]
+    rstreamlines_obj_cython = set_number_of_points(streamlines_obj, nb_points)
+    list_refcount_after = get_type_refcount()["list"]
+
+    # Calling `set_number_of_points` should increase the refcount of `list` by two
+    # since a ``Streamlines`` object contains two lists.
+    assert_equal(list_refcount_after, list_refcount_before+2)
 
 
 def test_length():
