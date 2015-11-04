@@ -2,7 +2,6 @@ from warnings import warn
 
 import numpy as np
 from nibabel.affines import apply_affine
-from nibabel.streamlines import CompactList as Streamlines
 from dipy.tracking.streamlinespeed import set_number_of_points
 from dipy.tracking.streamlinespeed import length
 from dipy.tracking.streamlinespeed import compress_streamlines
