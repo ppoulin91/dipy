@@ -4,7 +4,7 @@
 import numpy as np
 cimport numpy as np
 import cython
-from dipy.tracking.streamline import Streamlines
+from dipy.tracking import Streamlines
 
 from libc.math cimport sqrt
 
