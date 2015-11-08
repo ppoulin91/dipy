@@ -231,6 +231,7 @@ def _set_number_of_points_compactlist(streamlines, nb_points=3):
 
     return rstreamlines
 
+
 def set_number_of_points(streamlines, nb_points=3):
     ''' Change the number of points of streamlines
         (either by downsampling or upsampling)
