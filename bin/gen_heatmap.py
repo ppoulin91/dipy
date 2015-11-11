@@ -10,6 +10,7 @@ from dipy.tracking.utils import density_map
 from dipy.tracking.streamline import set_number_of_points
 
 from dipy.segment.clustering import QuickBundles, quickbundles_with_merging
+from dipy.segment.metric import ResampleFeature, AveragePointwiseEuclideanMetric
 
 
 def build_args_parser():
@@ -57,11 +58,14 @@ def save_nifti(filename, heatmap, affine):
 
 
 def perform_clustering(streamlines, threshold, ordering, method="QB"):
+    resample = ResampleFeature(nb_points=20)
+    metric = AveragePointwiseEuclideanMetric(resample)
+
     if method == "QB":
-        qb = QuickBundles(threshold=threshold)
+        qb = QuickBundles(threshold=threshold, metric=metric)
         clusters = qb.cluster(streamlines, ordering=ordering)
     elif method == "QBm":
-        qb = QuickBundles(threshold=threshold)
+        qb = QuickBundles(threshold=threshold, metric=metric)
         clusters = quickbundles_with_merging(streamlines, qb, ordering=ordering)
 
     return clusters
@@ -83,15 +87,13 @@ def main():
     parser = build_args_parser()
     args = parser.parse_args()
 
-    streamlines, colors, properties, hdr = load_tractogram(args.tractogram, points_space='rasmm')
+    streamlines, colors, properties, hdr = load_tractogram(args.tractogram, points_space='voxmm')
     vol_dims = hdr['dim']
-    voxel_size = hdr['voxel_size']
     affine = hdr['vox_to_ras']
 
     if args.ref is not None:
         nii = nib.load(args.ref)
         vol_dims = nii.shape
-        voxel_size = nii.header.get_zooms()
         affine = nii.affine
 
     rng = np.random.RandomState(args.seed)
@@ -99,11 +101,11 @@ def main():
     centroids = fuse_centroids(streamlines, args.threshold, orderings, method=args.method, verbose=args.verbose)
     centroids = set_number_of_points(centroids, nb_points=300)
 
-    data = density_map(centroids, vol_dims, affine=affine).astype(float)
-    #data = density_map(centroids, vol_dims, affine=np.eye(4)).astype(float)
+    #data = density_map(centroids, vol_dims, affine=affine).astype(float)
+    data = density_map(centroids, vol_dims, affine=np.eye(4)).astype(float)
     save_nifti(args.out, data, affine=affine)
 
-    save_tractogram("centroids.trk", centroids, [None]*len(centroids), [None]*len(centroids), hdr, points_space="rasmm")
+    save_tractogram("centroids.trk", centroids, [None]*len(centroids), [None]*len(centroids), hdr, points_space="voxmm")
 
 
 if __name__ == "__main__":
