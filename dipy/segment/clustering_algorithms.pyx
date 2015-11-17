@@ -1,5 +1,5 @@
 # distutils: language = c
-# cython: wraparound=False, cdivision=True, boundscheck=False
+# cython: wraparound=False, cdivision=True, boundscheck=False, initializedcheck=False
 
 import itertools
 import numpy as np
@@ -7,7 +7,9 @@ import numpy as np
 from cythonutils cimport Data2D, shape2tuple
 from metricspeed cimport Metric
 from clusteringspeed cimport ClustersCentroid, Centroid, QuickBundles
+from clusteringspeed cimport QuickBundlesX
 from dipy.segment.clustering import ClusterMapCentroid, ClusterCentroid
+from dipy.tracking import Streamlines
 
 cdef extern from "stdlib.h" nogil:
     ctypedef unsigned long size_t
@@ -57,12 +59,53 @@ def peek(iterable):
     return first, iterator
 
 
-def quickbundles(streamlines, Metric metric, double threshold, long max_nb_clusters=BIGGEST_INT, ordering=None):
+def quickbundles_compactlist(streamlines, Metric metric, double threshold, long max_nb_clusters=BIGGEST_INT, ordering=None, bvh=False):
+    if not isinstance(streamlines, Streamlines):
+        raise ValueError("`streamlines` must be a ``Streamlines`` object")
+
+    # Threshold of np.inf is not supported, set it to 'biggest_double'
+    threshold = min(threshold, BIGGEST_DOUBLE)
+    # Threshold of -np.inf is not supported, set it to 0
+    threshold = max(threshold, 0)
+
+    if ordering is None:
+        ordering = np.arange(len(streamlines))
+
+    # Check if `ordering` or `streamlines` are empty
+    first_idx = ordering[0] if len(ordering) > 0 else None
+    if first_idx is None or len(streamlines) == 0:
+        return ClusterMapCentroid()
+
+    features_shape = shape2tuple(metric.feature.c_infer_shape(streamlines[first_idx].astype(DTYPE)))
+    cdef QuickBundles qb = QuickBundles(features_shape, metric, threshold, max_nb_clusters, bvh)
+    cdef int idx, i
+    cdef int cluster_id
+    cdef int nb_streamlines = len(streamlines)
+    cdef long[:] c_ordering = np.asarray(ordering)
+    cdef long[:] offsets = np.asarray(streamlines._offsets)
+    cdef long[:] lengths = np.asarray(streamlines._lengths)
+    cdef Data2D data = streamlines._data
+
+    with nogil:
+        for i in range(c_ordering.shape[0]):
+            idx = c_ordering[i]
+            cluster_id = qb.assignment_step(data[offsets[idx]:offsets[idx]+lengths[idx]], idx)
+            # The update step is performed right after the assignement step instead
+            # of after all streamlines have been assigned like k-means algorithm.
+            qb.update_step(cluster_id)
+
+    results = clusters_centroid2clustermap_centroid(qb.clusters)
+    results.stats = qb.get_stats()
+    return results
+
+
+def quickbundles(streamlines, Metric metric, double threshold,
+                 long max_nb_clusters=BIGGEST_INT, ordering=None, bvh=False):
     """ Clusters streamlines using QuickBundles.
 
     Parameters
     ----------
-    streamlines : list of 2D arrays
+    streamlines : list of 2D arrays or `Streamlines` object
         List of streamlines to cluster.
     metric : `Metric` object
         Tells how to compute the distance between two streamlines.
@@ -73,6 +116,8 @@ def quickbundles(streamlines, Metric metric, double threshold, long max_nb_clust
         Limits the creation of bundles. (Default: inf)
     ordering : iterable of indices, optional
         Iterate through `data` using the given ordering.
+    bvh : bool
+        Boundary volume hierarchy
 
     Returns
     -------
@@ -85,10 +130,16 @@ def quickbundles(streamlines, Metric metric, double threshold, long max_nb_clust
                         tractography simplification, Frontiers in Neuroscience,
                         vol 6, no 175, 2012.
     """
+
+    if isinstance(streamlines, Streamlines):
+        return quickbundles_compactlist(streamlines, metric, threshold, max_nb_clusters, ordering, bvh)
+
     # Threshold of np.inf is not supported, set it to 'biggest_double'
     threshold = min(threshold, BIGGEST_DOUBLE)
     # Threshold of -np.inf is not supported, set it to 0
     threshold = max(threshold, 0)
+
+
 
     if ordering is None:
         ordering = xrange(len(streamlines))
@@ -99,7 +150,8 @@ def quickbundles(streamlines, Metric metric, double threshold, long max_nb_clust
         return ClusterMapCentroid()
 
     features_shape = shape2tuple(metric.feature.c_infer_shape(streamlines[first_idx].astype(DTYPE)))
-    cdef QuickBundles qb = QuickBundles(features_shape, metric, threshold, max_nb_clusters)
+    cdef QuickBundles qb = QuickBundles(features_shape, metric, threshold,
+                                        max_nb_clusters, bvh)
     cdef int idx
 
     for idx in ordering:
@@ -112,4 +164,51 @@ def quickbundles(streamlines, Metric metric, double threshold, long max_nb_clust
         # of after all streamlines have been assigned like k-means algorithm.
         qb.update_step(cluster_id)
 
-    return clusters_centroid2clustermap_centroid(qb.clusters)
+    results = clusters_centroid2clustermap_centroid(qb.clusters)
+    results.stats = qb.get_stats()
+    return results
+
+
+def quickbundlesX(streamlines, Metric metric, thresholds, ordering=None):
+    """ Clusters streamlines using QuickBundles.
+
+    Parameters
+    ----------
+    streamlines : list of 2D arrays
+        List of streamlines to cluster.
+    metric : `Metric` object
+        Tells how to compute the distance between two streamlines.
+    thresholds : list of double
+        Thresholds to use for each clustering layer. A threshold represents the
+        maximum distance from a cluster for a streamline to be still considered
+        as part of it.
+    ordering : iterable of indices, optional
+        Iterate through `data` using the given ordering.
+
+    Returns
+    -------
+    `QuickBundlesX` object
+        Result of the clustering.
+
+    """
+    if ordering is None:
+        ordering = xrange(len(streamlines))
+
+    # Check if `ordering` or `streamlines` are empty
+    first_idx, ordering = peek(ordering)
+    if first_idx is None or len(streamlines) == 0:
+        return ClusterMapCentroid()
+
+    features_shape = shape2tuple(metric.feature.c_infer_shape(streamlines[first_idx].astype(DTYPE)))
+    cdef QuickBundlesX qbx = QuickBundlesX(features_shape, thresholds, metric)
+    cdef int idx
+
+    for idx in ordering:
+        streamline = streamlines[idx]
+        if not streamline.flags.writeable or streamline.dtype != DTYPE:
+            streamline = streamline.astype(DTYPE)
+
+        qbx.insert(streamline, idx)
+
+    return qbx
+

@@ -22,6 +22,8 @@ import dipy.tracking.streamline as streamline_utils
 from dipy.segment.metric import Metric
 from dipy.segment.quickbundles import QuickBundles as QB_Old
 from dipy.segment.clustering import QuickBundles as QB_New
+from dipy.segment.clustering import QuickBundlesX as QBX
+from dipy.tracking import Streamlines
 from nose.tools import assert_equal
 
 from dipy.testing import assert_arrays_equal
@@ -92,3 +94,59 @@ def bench_quickbundles():
     assert_equal(len(clusters), expected_nb_clusters)
     assert_array_equal(sizes3, sizes1)
     assert_arrays_equal(indices3, indices1)
+
+
+def bench_quickbundlesX():
+    dtype = "float32"
+    repeat = 1
+    nb_points = 18
+
+    streams, hdr = nib.trackvis.read(get_data('fornix'))
+    fornix = [s[0].astype(dtype) for s in streams]
+    fornix = streamline_utils.set_number_of_points(fornix, nb_points)
+
+    #Create eight copies of the fornix to be clustered (one in each octant).
+    streamlines = []
+    streamlines += [s + np.array([100, 100, 100], dtype) for s in fornix]
+    streamlines += [s + np.array([100, -100, 100], dtype) for s in fornix]
+    streamlines += [s + np.array([100, 100, -100], dtype) for s in fornix]
+    streamlines += [s + np.array([100, -100, -100], dtype) for s in fornix]
+    streamlines += [s + np.array([-100, 100, 100], dtype) for s in fornix]
+    streamlines += [s + np.array([-100, -100, 100], dtype) for s in fornix]
+    streamlines += [s + np.array([-100, 100, -100], dtype) for s in fornix]
+    streamlines += [s + np.array([-100, -100, -100], dtype) for s in fornix]
+    streamlines *= 10
+
+    # The expected number of clusters of the fornix using threshold=10 is 4.
+    threshold = 10.
+    expected_nb_clusters = 4*8
+
+    print("Timing QuickBundles 2.0 vs. Xtreme ({} streamlines)".format(len(streamlines)))
+    qb2 = QB_New(threshold)
+    qb2_time = measure("clusters = qb2.cluster(streamlines)", repeat)
+    print("QuickBundles2 time: {0:.4}sec".format(qb2_time))
+    clusters = qb2.cluster(streamlines)
+    sizes2 = map(len, clusters)
+    indices2 = map(lambda c: c.indices, clusters)
+    assert_equal(len(clusters), expected_nb_clusters)
+
+    #thresholds = [2*threshold, 1.5*threshold, 1.2*threshold, threshold]
+    thresholds = [2*threshold, 1.5*threshold, threshold]
+    qbx = QBX(thresholds)
+    qbX_time = measure("clusters = qbx.cluster(streamlines)", repeat)
+    print("QuickBundlesX time: {0:.4}sec".format(qbX_time))
+    print("Speed up of {0}x".format(qb2_time/qbX_time))
+    qbx_clusters = qbx.cluster(streamlines)
+    for i in range(1, len(thresholds)+1):
+        clusters = qbx_clusters.get_clusters(i)
+        print "Level {}:".format(i), len(clusters)
+
+    sizesX = map(len, clusters)
+    indicesX = map(lambda c: c.indices, clusters)
+    assert_equal(len(clusters), expected_nb_clusters)
+    assert_array_equal(sizesX, sizes2)
+    assert_arrays_equal(indicesX, indices2)
+
+
+if __name__ == "__main__":
+    bench_quickbundlesX()
