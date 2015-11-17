@@ -9,6 +9,7 @@ from dipy.viz.utils import numpy_to_vtk_matrix
 
 # Conditional import machinery for vtk
 from dipy.utils.optpkg import optional_package
+from dipy.utils.six import string_types
 
 # Allow import, but disable doctests if we don't have vtk
 vtk, have_vtk, setup_module = optional_package('vtk')
@@ -637,3 +638,69 @@ def text_3d(text, position=(0, 0, 0), color=(1, 1, 1),
     text_actor.vertical_justification(vertical_justification)
 
     return text_actor
+
+
+def figure(pic, size=1, interpolation='nearest'):
+    """ Return a figure as an image actor
+
+    Parameters
+    ----------
+    pic : filename or numpy RGBA array
+
+    interpolation : str
+        Options are nearest, linear or cubic. Default is nearest.
+
+    Returns
+    -------
+    image_actor : vtkImageActor
+    """
+
+    if isinstance(pic, string_types):
+        png = vtk.vtkPNGReader()
+        png.SetFileName(pic)
+        png.Update()
+        vtk_image_data = png.GetOutput()
+    else:
+
+        if pic.ndim == 3 and pic.shape[2] == 4:
+
+            vtk_image_data = vtk.vtkImageData()
+            if major_version <= 5:
+                vtk_image_data.SetScalarTypeToUnsignedChar()
+
+            if major_version <= 5:
+                vtk_image_data.AllocateScalars()
+                vtk_image_data.SetNumberOfScalarComponents(4)
+            else:
+                vtk_image_data.AllocateScalars(vtk.VTK_UNSIGNED_CHAR, 4)
+
+            # width, height
+            vtk_image_data.SetDimensions(pic.shape[1], pic.shape[0], 1)
+            vtk_image_data.SetExtent(0, pic.shape[1] - 1,
+                                     0, pic.shape[0] - 1,
+                                     0, 0)
+            pic_tmp = np.swapaxes(pic, 0, 1)
+            pic_tmp = pic.reshape(pic.shape[1] * pic.shape[0], 4)
+            pic_tmp = np.ascontiguousarray(pic_tmp)
+            uchar_array = numpy_support.numpy_to_vtk(pic_tmp, deep=True)
+            vtk_image_data.GetPointData().SetScalars(uchar_array)
+
+    image_actor = vtk.vtkImageActor()
+    if major_version > 5:
+        image_actor.SetInputData(vtk_image_data)
+    else:
+        image_actor.SetInput(vtk_image_data)
+
+    if interpolation == 'nearest':
+        image_actor.GetProperty().SetInterpolationTypeToNearest()
+
+    if interpolation == 'linear':
+        image_actor.GetProperty().SetInterpolationTypeToLinear()
+
+    if interpolation == 'cubic':
+        image_actor.GetProperty().SetInterpolationTypeToCubic()
+
+    image_actor.SetScale(float(size)/np.max(pic.shape))
+
+    image_actor.Update()
+    return image_actor
