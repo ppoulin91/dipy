@@ -668,7 +668,7 @@ class HierarchicalQuickBundles(Clustering):
                 clusters = []
                 threshold = max(node.threshold-reduction_factor, self.min_threshold)
                 indices = node.indices
-                np.random.shuffle(indices)
+                #np.random.shuffle(indices)
                 while threshold >= self.min_threshold:
                     qb = QuickBundles(metric=self.metric, threshold=threshold)
                     clusters = qb.cluster(streamlines, ordering=indices)
@@ -699,7 +699,7 @@ class HierarchicalQuickBundles(Clustering):
 
 
 def outlier_rejection(streamlines, threshold=0.2, confidence=0.95,
-                      hqb=HierarchicalQuickBundles(), nb_samplings_max=50, seed=None,
+                      hqb=HierarchicalQuickBundles(), nb_samplings_max=50, seed=1234,
                       return_outlierness=False, verbose=False):
     """
     Detects outliers in a set of streamlines.
