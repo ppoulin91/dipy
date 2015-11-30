@@ -339,7 +339,8 @@ class ShowManager(object):
 
     def __init__(self, ren, title='DIPY', size=(300, 300),
                  png_magnify=1, reset_camera=True, order_transparent=False,
-                 interactor_style='trackball'):
+                 interactor_style='trackball', picker_pos=(10, 10, 0),
+                 picker_tol=0.002):
 
         """ Manages the visualization pipeline
 
@@ -350,7 +351,7 @@ class ShowManager(object):
         title : string
             A string for the window title bar.
         size : (int, int)
-            ``(width, height)`` of the window. Default is (300, 300).
+            ``(width, height)`` of the window
         png_magnify : int
             Number of times to magnify the screenshot. This can be used to save
             high resolution screenshots when pressing 's' inside the window.
@@ -366,6 +367,8 @@ class ShowManager(object):
             If str then if 'trackball' then vtkInteractorStyleTrackballCamera()
             is used or if 'image' then vtkInteractorStyleImage() is used (no
             rotation). Otherwise you can input your own interactor style.
+        picker_pos : tuple
+        picker_tol : float
 
         Attributes
         ----------
@@ -398,7 +401,7 @@ class ShowManager(object):
         >>> showm = window.ShowManager(renderer)
         >>> # showm.initialize()
         >>> # showm.render()
-        >>> # showm.start()
+        >>> # start()
         """
 
         self.ren = ren
@@ -408,6 +411,9 @@ class ShowManager(object):
         self.reset_camera = reset_camera
         self.order_transparent = order_transparent
         self.interactor_style = interactor_style
+        self.picker_pos = picker_pos
+        self.picker_tol = picker_tol
+        self.timers = []
 
         if self.reset_camera:
             self.ren.ResetCamera()
@@ -450,6 +456,9 @@ class ShowManager(object):
             self.style = interactor_style
 
         self.iren = vtk.vtkRenderWindowInteractor()
+        self.style.SetCurrentRenderer(self.ren)
+        self.style.SetInteractor(self.iren)  # Hack: this allows the Python version of this method to be called.
+        self.iren.SetInteractorStyle(self.style)
         self.iren.SetRenderWindow(self.window)
 
         def key_press_standard(obj, event):
@@ -479,13 +488,18 @@ class ShowManager(object):
                     print('File ' + filepath + ' is saved.')
 
         self.iren.AddObserver('KeyPressEvent', key_press_standard)
-        self.iren.SetInteractorStyle(self.style)
+
+        self.picker = vtk.vtkCellPicker()
+        self.picker.SetTolerance(self.picker_tol)
+        self.iren.SetPicker(self.picker)
 
     def initialize(self):
         """ Initialize interaction
         """
         self.iren.Initialize()
-        # picker.Pick(85, 126, 0, ren)
+
+        i, j, k = self.picker_pos
+        self.picker.Pick(i, j, k, self.ren)
 
     def render(self):
         """ Renders only once
@@ -521,6 +535,21 @@ class ShowManager(object):
         self.window.AddObserver(vtk.vtkCommand.ModifiedEvent, win_callback)
         self.window.Render()
 
+    def add_picker_callback(self, picker_callback):
+        self.picker.AddObserver("EndPickEvent", picker_callback)
+
+    def add_timer_callback(self, repeat, duration, timer_callback):
+        self.iren.AddObserver("TimerEvent", timer_callback)
+
+        if repeat:
+            timer_id = self.iren.CreateRepeatingTimer(duration)
+        else:
+            timer_id = self.iren.CreateOneShotTimer(duration)
+        self.timers.append(timer_id)
+
+    def destroy_timers(self):
+        for timer_id in self.timers:
+            self.iren.DestroyTimer(timer_id)
 
 def show(ren, title='DIPY', size=(300, 300),
          png_magnify=1, reset_camera=True, order_transparent=False):
