@@ -423,6 +423,12 @@ class TreeClusterMap(ClusterMap):
 
         self.traverse_postorder(self.root, _set_refdata)
 
+    def traverse_preorder(self, node, visit):
+        visit(node)
+
+        for child in node.children:
+            self.traverse_preorder(child, visit)
+
     def traverse_postorder(self, node, visit):
         for child in node.children:
             self.traverse_postorder(child, visit)
