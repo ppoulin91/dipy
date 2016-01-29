@@ -3,7 +3,7 @@ from __future__ import division
 from itertools import izip
 
 from dipy.viz import window, actor
-from dipy.viz.axycolor import distinguishable_colormap
+from dipy.viz.colormap import distinguishable_colormap
 
 
 from dipy.viz import interactor
