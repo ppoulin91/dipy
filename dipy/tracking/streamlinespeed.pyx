@@ -7,6 +7,8 @@ import cython
 
 from libc.math cimport sqrt
 
+from dipy.tracking import Streamlines
+
 cdef extern from "dpy_math.h" nogil:
     bint dpy_isnan(double x)
 
@@ -31,6 +33,25 @@ cdef double c_length(Streamline streamline) nogil:
         out += sqrt(sum_dn_sqr)
 
     return out
+
+
+cdef void c_arclengths_from_compact_list(Streamline points, long[:] offsets, long[:] lengths, double[:] arclengths) nogil:
+    cdef:
+        np.npy_intp i, j, k
+        np.npy_intp offset
+        double dn, sum_dn_sqr
+
+    for i in range(offsets.shape[0]):
+        offset = offsets[i]
+
+        arclengths[i] = 0
+        for j in range(1, lengths[i]):
+            sum_dn_sqr = 0.0
+            for k in range(points.shape[1]):
+                dn = points[offset+j, k] - points[offset+j-1, k]
+                sum_dn_sqr += dn*dn
+
+            arclengths[i] += sqrt(sum_dn_sqr)
 
 
 def length(streamlines):
@@ -67,6 +88,24 @@ def length(streamlines):
     0.0
 
     '''
+    if isinstance(streamlines, Streamlines):
+        if len(streamlines) == 0:
+            return 0.0
+
+        offsets = np.asarray(streamlines._offsets)  # TODO: make _offsets a numpy array.
+        lengths = np.asarray(streamlines._lengths)  # TODO: make _offsets a numpy array.
+        arclengths = np.zeros(len(streamlines), dtype=np.float64)
+
+        if streamlines._data.dtype == np.float32:
+            c_arclengths_from_compact_list[float2d](streamlines._data, offsets, lengths, arclengths)
+        else:
+            c_arclengths_from_compact_list[double2d](streamlines._data, offsets, lengths, arclengths)
+
+        if len(streamlines) == 1:
+            return arclengths[0]
+
+        return arclengths
+
     only_one_streamlines = False
     if type(streamlines) is np.ndarray:
         only_one_streamlines = True

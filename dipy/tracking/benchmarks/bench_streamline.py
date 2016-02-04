@@ -18,6 +18,7 @@ from numpy.testing import measure
 from dipy.data import get_data
 from nibabel import trackvis as tv
 
+from dipy.tracking import Streamlines
 from dipy.tracking.streamline import (set_number_of_points,
                                       length,
                                       compress_streamlines)
@@ -49,17 +50,24 @@ def bench_length():
     repeat = 1
     nb_points_per_streamline = 100
     nb_streamlines = int(1e5)
-    streamlines = [np.random.rand(nb_points_per_streamline, 3).astype("float32") for i in range(nb_streamlines)]
-
-    print("Timing length() in Cython ({0} streamlines)".format(nb_streamlines))
-    cython_time = measure("length(streamlines)", repeat)
-    print("Cython time: {0:.3}sec".format(cython_time))
-    del streamlines
 
     streamlines = [np.random.rand(nb_points_per_streamline, 3).astype("float32") for i in range(nb_streamlines)]
     python_time = measure("[length_python(s) for s in streamlines]", repeat)
     print("Python time: {0:.2}sec".format(python_time))
-    print("Speed up of {0}x".format(python_time/cython_time))
+    del streamlines
+
+    streamlines = [np.random.rand(nb_points_per_streamline, 3).astype("float32") for i in range(nb_streamlines)]
+    print("Timing length() in Cython ({0} streamlines)".format(nb_streamlines))
+    cython_time = measure("length(streamlines)", repeat)
+    print("Cython time: {0:.3}sec".format(cython_time))
+    print("Speed up of {0:.2f}x".format(python_time/cython_time))
+    del streamlines
+
+    streamlines = Streamlines([np.random.rand(nb_points_per_streamline, 3).astype("float32") for i in range(nb_streamlines)])
+    print("Timing length() in Cython ({0} streamlines in a CompactList)".format(nb_streamlines))
+    cython_time_clist = measure("length(streamlines)", repeat)
+    print("Cython time (CompactList): {0:.3}sec".format(cython_time_clist))
+    print("Speed up of {0:.2f}x".format(python_time/cython_time_clist))
     del streamlines
 
 
