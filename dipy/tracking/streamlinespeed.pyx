@@ -92,14 +92,12 @@ def length(streamlines):
         if len(streamlines) == 0:
             return 0.0
 
-        offsets = np.asarray(streamlines._offsets)  # TODO: make _offsets a numpy array.
-        lengths = np.asarray(streamlines._lengths)  # TODO: make _offsets a numpy array.
         arclengths = np.zeros(len(streamlines), dtype=np.float64)
 
         if streamlines._data.dtype == np.float32:
-            c_arclengths_from_compact_list[float2d](streamlines._data, offsets, lengths, arclengths)
+            c_arclengths_from_compact_list[float2d](streamlines._data, streamlines._offsets, streamlines._lengths, arclengths)
         else:
-            c_arclengths_from_compact_list[double2d](streamlines._data, offsets, lengths, arclengths)
+            c_arclengths_from_compact_list[double2d](streamlines._data, streamlines._offsets, streamlines._lengths, arclengths)
 
         if len(streamlines) == 1:
             return arclengths[0]
