@@ -231,6 +231,10 @@ def test_set_number_of_points():
         assert_array_almost_equal(modified_streamlines_cython[i],
                                   modified_streamline_python, 5)
 
+    # ArraySequence
+    modified_streamlines_as_seq_cython = set_number_of_points(Streamlines(streamlines), nb_points)
+    assert_array_almost_equal(modified_streamlines_as_seq_cython, modified_streamlines_cython)
+
     modified_streamlines_cython = set_number_of_points(
         streamlines_64bit, nb_points)
 
@@ -238,6 +242,10 @@ def test_set_number_of_points():
         modified_streamline_python = set_number_of_points_python(s, nb_points)
         assert_array_almost_equal(modified_streamlines_cython[i],
                                   modified_streamline_python)
+
+    # ArraySequence
+    modified_streamlines_as_seq_cython = set_number_of_points(Streamlines(streamlines_64bit), nb_points)
+    assert_array_almost_equal(modified_streamlines_as_seq_cython, modified_streamlines_cython)
 
     # Test streamlines with mixed dtype
     streamlines_mixed_dtype = [streamline,
@@ -340,17 +348,17 @@ def test_length():
     length_streamline_python = length_python(streamline)
     assert_almost_equal(length_streamline_cython, length_streamline_python)
 
-    # CompactList
-    length_streamline_as_clist_cython = ds_length(Streamlines([streamline]))
-    assert_almost_equal(length_streamline_as_clist_cython, length_streamline_cython)
+    # ArraySequence
+    length_streamline_as_seq_cython = ds_length(Streamlines([streamline]))
+    assert_almost_equal(length_streamline_as_seq_cython, length_streamline_cython)
 
     length_streamline_cython = ds_length(streamline_64bit)
     length_streamline_python = length_python(streamline_64bit)
     assert_almost_equal(length_streamline_cython, length_streamline_python)
 
-    # CompactList
-    length_streamline_as_clist_cython = ds_length(Streamlines([streamline_64bit]))
-    assert_almost_equal(length_streamline_as_clist_cython, length_streamline_cython)
+    # ArraySequence
+    length_streamline_as_seq_cython = ds_length(Streamlines([streamline_64bit]))
+    assert_almost_equal(length_streamline_as_seq_cython, length_streamline_cython)
 
     # Test computing length of multiple streamlines of different nb_points
     length_streamlines_cython = ds_length(streamlines)
@@ -360,9 +368,9 @@ def test_length():
         assert_array_almost_equal(length_streamlines_cython[i],
                                   length_streamline_python)
 
-    # CompactList
-    length_streamlines_as_clist_cython = ds_length(Streamlines(streamlines))
-    assert_array_almost_equal(length_streamlines_as_clist_cython, length_streamlines_cython)
+    # ArraySequence
+    length_streamlines_as_seq_cython = ds_length(Streamlines(streamlines))
+    assert_array_almost_equal(length_streamlines_as_seq_cython, length_streamlines_cython)
 
     length_streamlines_cython = ds_length(streamlines_64bit)
 
@@ -371,17 +379,17 @@ def test_length():
         assert_array_almost_equal(length_streamlines_cython[i],
                                   length_streamline_python)
 
-    # CompactList
-    length_streamlines_as_clist_cython = ds_length(Streamlines(streamlines_64bit))
-    assert_array_almost_equal(length_streamlines_as_clist_cython, length_streamlines_cython)
+    # ArraySequence
+    length_streamlines_as_seq_cython = ds_length(Streamlines(streamlines_64bit))
+    assert_array_almost_equal(length_streamlines_as_seq_cython, length_streamlines_cython)
 
-    # Test on a sliced CompactList
+    # Test on a sliced ArraySequence
     length_streamlines_cython = ds_length(streamlines_64bit[::2])
-    length_streamlines_as_clist_cython = ds_length(Streamlines(streamlines_64bit[::2]))
-    assert_array_almost_equal(length_streamlines_as_clist_cython, length_streamlines_cython)
+    length_streamlines_as_seq_cython = ds_length(Streamlines(streamlines_64bit[::2]))
+    assert_array_almost_equal(length_streamlines_as_seq_cython, length_streamlines_cython)
     length_streamlines_cython = ds_length(streamlines_64bit[::-1])
-    length_streamlines_as_clist_cython = ds_length(Streamlines(streamlines_64bit[::-1]))
-    assert_array_almost_equal(length_streamlines_as_clist_cython, length_streamlines_cython)
+    length_streamlines_as_seq_cython = ds_length(Streamlines(streamlines_64bit[::-1]))
+    assert_array_almost_equal(length_streamlines_as_seq_cython, length_streamlines_cython)
 
     # Test streamlines having mixed dtype
     streamlines_mixed_dtype = [streamline,
@@ -688,6 +696,7 @@ def test_compress_streamlines_memory_leaks():
     # Calling `compress_streamlines` should increase the refcount of `list` by one
     # since we kept the returned value.
     assert_equal(list_refcount_after, list_refcount_before+1)
+
 
 def test_select_by_rois():
     streamlines = [np.array([[0, 0., 0.9],
