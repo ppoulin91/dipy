@@ -698,9 +698,10 @@ class HierarchicalQuickBundles(Clustering):
         return cluster_map
 
 
-def outlier_rejection(streamlines, threshold=0.2, confidence=0.95,
-                      hqb=HierarchicalQuickBundles(), nb_samplings_max=50, seed=1234,
-                      return_outlierness=False, verbose=False):
+def compute_outlierness(streamlines, confidence=0.95,
+                        hqb=HierarchicalQuickBundles(),
+                        nb_samplings_max=50, seed=1234,
+                        verbose=False):
     """
     Detects outliers in a set of streamlines.
     This technique uses the Hierarchical QuickBundles which provides more
@@ -711,8 +712,6 @@ def outlier_rejection(streamlines, threshold=0.2, confidence=0.95,
     ----------
     streamlines : list of 2D arrays
         Each 2D array represents a sequence of 3D points (nb_points, 3).
-    threshold : float (optional)
-        TODO: Threshold on the outlierness
     confidence : float (optional)
         Level of confidence of the confidence interval around the mean
         streamlines path length in the clustering tree.
@@ -723,23 +722,13 @@ def outlier_rejection(streamlines, threshold=0.2, confidence=0.95,
         The maximum number of different orderings to try
     seed : int (optional)
         Controls the shuffling of the ordering
-    return_outlierness : bool (optional)
-        If `True`, the outlierness of each streamline is returned.
     verbose : bool (optional)
         Display information about the ongoing process.
     Returns
     -------
-    inliers : `Cluster` object
-        The cluster of streamlines considered inliers i.e. having an
-        outlierness below or equal to `threshold`.
-    outliers : `Cluster` object
-        The cluster of streamlines considered outliers i.e. having an
-        outlierness over `threshold`.
     outlierness : 1D array (optional)
-        The outlierness of each streamline is returned only if
-        `return_outlierness` is `True`.
+        The outlierness for every streamline.
     """
-
     if nb_samplings_max < 2:
         raise ValueError("'nb_samplings_max' must be >= 2")
 
@@ -786,11 +775,4 @@ def outlier_rejection(streamlines, threshold=0.2, confidence=0.95,
     mean_paths_length = np.mean(paths_length[:, :ordering_no], axis=1)
     outlierness = 1 - (mean_paths_length/mean_paths_length.max())
 
-    indices = np.arange(len(streamlines))
-    outliers = Cluster(indices=indices[outlierness > threshold], refdata=streamlines)
-    inliers = Cluster(indices=indices[outlierness <= threshold], refdata=streamlines)
-
-    if return_outlierness:
-        return inliers, outliers, outlierness
-
-    return inliers, outliers
+    return outlierness

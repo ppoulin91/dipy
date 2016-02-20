@@ -10,7 +10,8 @@ import nibabel as nib
 
 from dipy.fixes import argparse
 
-from dipy.segment.clustering import outlier_rejection
+from dipy.segment.clustering import Cluster
+from dipy.segment.clustering import compute_outlierness
 
 from dipy.data import fetch_viz_icons
 from dipy.data.fetcher import dipy_home
@@ -24,9 +25,15 @@ def build_args_parser():
 
     p.add_argument("tractogram", help="File containing streamlines (.trk).")
 
-    p.add_argument("--threshold", type=float, default=0,
-                   help="Reject streamlines having an outlierness score above this threshold (%%)."
-                        "Default: set manually through an interactive display.")
+    # p.add_argument("--threshold", type=float, default=0,
+    #                help="*Deprecated: use '--thresholds' instead* "
+    #                     "Reject streamlines having an outlierness score above this threshold (%%)."
+    #                     "Default: set manually through an interactive display.")
+
+    p.add_argument("--thresholds", type=float, nargs="*",
+                   help="Reject streamlines having an outlierness score above this/these threshold(s), "
+                        "e.g. \"0.6 0.7 0.8\". "
+                        "Default: set it manually through an interactive display.")
 
     p.add_argument("--out", default="./",
                    help="Output dir where to save all the files. Default: './'")
@@ -278,15 +285,41 @@ def interactive_outlier_rejection(streamlines, outlierness, tractogram_filename,
     return inliers, outliers
 
 
+def get_inliers_and_outliers(streamlines, outlierness, threshold):
+    """ Extracts inliers and outliers streamlines based on their outlierness.
+
+    Parameters
+    ----------
+    streamlines : list of ndarray
+        Streamlines being filtered based on their outlierness.
+    outlierness : list of float
+        Scalars between 0 and 1 representing the tendency of each streamline
+        at being an outlier.
+    threshold : float
+        Scalar that determines if a streamline is an outlier (i.e. its
+        outlierness is above this value) or an inlier (i.e. its outlierness
+        is below or equals to that value).
+
+    Returns
+    -------
+    inliers : :class:`dipy.segment.clustering.Cluster` object
+        Streamlines that have an outlierness below or equals to the given threshold.
+    outliers : :class:`dipy.segment.clustering.Cluster` object
+        Streamlines that have an outlierness above to the given threshold.
+    """
+    indices = np.arange(len(streamlines))
+    inliers = Cluster(indices=indices[outlierness <= threshold], refdata=streamlines)
+    outliers = Cluster(indices=indices[outlierness > threshold], refdata=streamlines)
+    return inliers, outliers
+
+
 def main():
     parser = build_args_parser()
     args = parser.parse_args()
 
     streamlines, colors, properties, hdr = load_tractogram(args.tractogram)
-
-    inliers, outliers, outlierness = outlier_rejection(streamlines, threshold=args.threshold,
-                                                       confidence=args.confidence_level, seed=args.seed,
-                                                       return_outlierness=True, verbose=args.verbose)
+    outlierness = compute_outlierness(streamlines, confidence=args.confidence_level,
+                                      seed=args.seed, verbose=args.verbose)
 
     # Create output folder, if needed.
     try:
@@ -294,11 +327,11 @@ def main():
     except OSError:
         pass
 
-    if args.threshold == 0.:
+    if args.thresholds is None:
         inliers, outliers = interactive_outlier_rejection(streamlines, outlierness, args.tractogram, args.out, hdr)
         return
 
-    # Save results
+    # Save outlierness and the histogram.
     if args.outlierness is not None:
         np.savetxt(pjoin(args.out, args.outlierness.split(".csv")[0] + ".csv"), outlierness, delimiter=",")
 
@@ -306,17 +339,22 @@ def main():
         fig = create_hist(outlierness, colormap_name="jet")
         fig.savefig(pjoin(args.out, args.histogram.split(".png")[0] + ".png"), dpi=300, transparent=False, bbox_inches='tight', pad_inches=0.)
 
-    inliers_filename = args.inliers
-    if args.inliers is None:
-        inliers_filename = append_text_to_filename(args.tractogram, "_inliers")
+    for threshold in args.thresholds:
+        print "Saving results for threshold: {0}".format(threshold)
+        inliers, outliers = get_inliers_and_outliers(streamlines, outlierness, threshold)
 
-    save_tractogram(pjoin(args.out, inliers_filename), inliers, [], [], hdr)
+        # Save inliers and outliers for the current threshold.
+        inliers_filename = append_text_to_filename(args.tractogram, "_inliers_{0}".format(threshold))
+        if args.inliers is not None:
+            inliers_filename = args.inliers.split(".trk")[0] + "_" + str(threshold) + ".trk"
 
-    outliers_filename = args.outliers
-    if args.outliers is None:
-        outliers_filename = append_text_to_filename(args.tractogram, "_outliers")
+        save_tractogram(pjoin(args.out, inliers_filename), inliers, [], [], hdr)
 
-    save_tractogram(pjoin(args.out, outliers_filename), outliers, [], [], hdr)
+        outliers_filename = append_text_to_filename(args.tractogram, "_outliers_{0}".format(threshold))
+        if args.outliers is not None:
+            outliers_filename = args.outliers.split(".trk")[0] + "_" + str(threshold) + ".trk"
+
+        save_tractogram(pjoin(args.out, outliers_filename), outliers, [], [], hdr)
 
 
 if __name__ == "__main__":
