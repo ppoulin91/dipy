@@ -1,7 +1,6 @@
 #! /usr/bin/env pythonw
 
 import os
-import sys
 import itertools
 from os.path import join as pjoin
 
@@ -24,11 +23,6 @@ def build_args_parser():
     p = argparse.ArgumentParser(description=description)
 
     p.add_argument("tractogram", help="File containing streamlines (.trk).")
-
-    # p.add_argument("--threshold", type=float, default=0,
-    #                help="*Deprecated: use '--thresholds' instead* "
-    #                     "Reject streamlines having an outlierness score above this threshold (%%)."
-    #                     "Default: set manually through an interactive display.")
 
     p.add_argument("--thresholds", type=float, nargs="*",
                    help="Reject streamlines having an outlierness score above this/these threshold(s), "
