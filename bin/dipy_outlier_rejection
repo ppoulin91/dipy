@@ -32,7 +32,7 @@ def build_args_parser():
     p.add_argument("--out", default="./",
                    help="Output dir where to save all the files. Default: './'")
 
-    p.add_argument("--inliers", help="Filename where to save tractography intliers (.trk)."
+    p.add_argument("--inliers", help="Filename where to save tractography inliers (.trk)."
                    "Default: append '_inliers' to the tractogram filename")
     p.add_argument("--outliers", help="Filename where to save tractography outliers (.trk)."
                    "Default: append '_outliers' to the tractogram filename")
