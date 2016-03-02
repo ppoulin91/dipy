@@ -447,7 +447,7 @@ cdef double c_segment_length(Streamline streamline,
 
 
 cdef np.npy_intp c_compress_streamline(Streamline streamline, Streamline out,
-                                       double tol_error, double max_segment_length) nogil:
+                                       double tol_error, double max_segment_length, int[:] index) nogil:
     """ Compresses a streamline (see function `compress_streamlines`)."""
     cdef:
         np.npy_intp N = streamline.shape[0]
@@ -455,8 +455,11 @@ cdef np.npy_intp c_compress_streamline(Streamline streamline, Streamline out,
         np.npy_intp nb_points = 0
         np.npy_intp d, prev, next, curr
         double segment_length
+        int i = 0
 
     # Copy first point since it is always kept.
+    index[i] = 0
+    i += 1
     for d in range(D):
         out[0, d] = streamline[0, d]
 
@@ -469,6 +472,8 @@ cdef np.npy_intp c_compress_streamline(Streamline streamline, Streamline out,
     for next in range(2, N):
         # Euclidean distance between last added point and current point.
         if c_segment_length(streamline, prev, next) > max_segment_length:
+            index[i] = next-1
+            i += 1
             for d in range(D):
                 out[nb_points, d] = streamline[next-1, d]
 
@@ -481,6 +486,8 @@ cdef np.npy_intp c_compress_streamline(Streamline streamline, Streamline out,
             dist = c_dist_to_line(streamline, prev, next, curr)
 
             if dpy_isnan(dist) or dist > tol_error:
+                index[i] = curr
+                i += 1
                 for d in range(D):
                     out[nb_points, d] = streamline[next-1, d]
 
@@ -489,6 +496,7 @@ cdef np.npy_intp c_compress_streamline(Streamline streamline, Streamline out,
                 break
 
     # Copy last point since it is always kept.
+    index[i] = N-1
     for d in range(D):
         out[nb_points, d] = streamline[N-1, d]
 
@@ -576,6 +584,7 @@ def compress_streamlines(streamlines, tol_error=0.01, max_segment_length=10):
         return []
 
     compressed_streamlines = []
+    compressed_index = []
     cdef np.npy_intp i
     for i in range(len(streamlines)):
         dtype = streamlines[i].dtype
@@ -592,19 +601,22 @@ def compress_streamlines(streamlines, tol_error=0.01, max_segment_length=10):
             continue
 
         compressed_streamline = np.empty(shape, dtype)
+        index = np.empty(shape[0], np.int32)
 
         if dtype == np.float32:
             nb_points = c_compress_streamline[float2d](streamline, compressed_streamline,
-                                                       tol_error, max_segment_length)
+                                                       tol_error, max_segment_length, index)
         else:
             nb_points = c_compress_streamline[double2d](streamline, compressed_streamline,
-                                                        tol_error, max_segment_length)
+                                                        tol_error, max_segment_length, index)
 
+        index = np.resize(index, nb_points)
         compressed_streamline.resize((nb_points, streamline.shape[1]))
         # HACK: To avoid memleaks we have to recast with astype(dtype).
         compressed_streamlines.append(compressed_streamline.astype(dtype))
+        compressed_index.append(index)
 
     if only_one_streamlines:
-        return compressed_streamlines[0]
+        return compressed_streamlines[0], compressed_index
     else:
-        return compressed_streamlines
+        return compressed_streamlines, compressed_index
