@@ -447,7 +447,7 @@ cdef double c_segment_length(Streamline streamline,
 
 
 cdef np.npy_intp c_compress_streamline(Streamline streamline, Streamline out,
-                                       double tol_error, double max_segment_length, int[:] index) nogil:
+                                       double tol_error, double max_segment_length, int[:] indices) nogil:
     """ Compresses a streamline (see function `compress_streamlines`)."""
     cdef:
         np.npy_intp N = streamline.shape[0]
@@ -458,7 +458,7 @@ cdef np.npy_intp c_compress_streamline(Streamline streamline, Streamline out,
         int i = 0
 
     # Copy first point since it is always kept.
-    index[i] = 0
+    indices[i] = 0
     i += 1
     for d in range(D):
         out[0, d] = streamline[0, d]
@@ -472,7 +472,7 @@ cdef np.npy_intp c_compress_streamline(Streamline streamline, Streamline out,
     for next in range(2, N):
         # Euclidean distance between last added point and current point.
         if c_segment_length(streamline, prev, next) > max_segment_length:
-            index[i] = next-1
+            indices[i] = next-1
             i += 1
             for d in range(D):
                 out[nb_points, d] = streamline[next-1, d]
@@ -486,7 +486,7 @@ cdef np.npy_intp c_compress_streamline(Streamline streamline, Streamline out,
             dist = c_dist_to_line(streamline, prev, next, curr)
 
             if dpy_isnan(dist) or dist > tol_error:
-                index[i] = curr
+                indices[i] = curr
                 i += 1
                 for d in range(D):
                     out[nb_points, d] = streamline[next-1, d]
@@ -496,7 +496,7 @@ cdef np.npy_intp c_compress_streamline(Streamline streamline, Streamline out,
                 break
 
     # Copy last point since it is always kept.
-    index[i] = N-1
+    indices[i] = N-1
     for d in range(D):
         out[nb_points, d] = streamline[N-1, d]
 
@@ -504,7 +504,8 @@ cdef np.npy_intp c_compress_streamline(Streamline streamline, Streamline out,
     return nb_points
 
 
-def compress_streamlines(streamlines, tol_error=0.01, max_segment_length=10):
+def compress_streamlines(streamlines, tol_error=0.01, max_segment_length=10,
+                         return_index=False):
     """ Compress streamlines by linearization as in [Presseau15]_.
 
     The compression consists in merging consecutive segments that are
@@ -522,6 +523,9 @@ def compress_streamlines(streamlines, tol_error=0.01, max_segment_length=10):
     value will result in a faster linearization but low compression, whereas
     a high value will result in a slower linearization but high compression.
 
+    There are one optional output in addition to the compress streamlines:
+    the indices of the points being kept for each streamline.
+
     Parameters
     ----------
     streamlines : one or a list of array-like of shape (N,3)
@@ -533,17 +537,25 @@ def compress_streamlines(streamlines, tol_error=0.01, max_segment_length=10):
     max_segment_length : float (optional)
         Maximum length in mm of any given segment produced by the compression.
         The default is 10mm. (In [Presseau15]_, they used a value of `np.inf`).
+    return_index : {True, False}, optional
+        If True, also return the indices of the points being kept for each
+        streamline.
 
     Returns
     -------
     compressed_streamlines : one or a list of array-like
         Results of the linearization process.
+    compressed_indices : one or a list of array-like
+        The indices of the points being kept for each streamline. Only
+        provided if `return_index` is True.
 
     Examples
     --------
     >>> from dipy.tracking.streamline import compress_streamlines
     >>> import numpy as np
-    >>> # One streamline: a wiggling line
+
+    One streamline, a wiggling line:
+
     >>> rng = np.random.RandomState(42)
     >>> streamline = np.linspace(0, 10, 100*3).reshape((100, 3))
     >>> streamline += 0.2 * rng.rand(100, 3)
@@ -552,7 +564,9 @@ def compress_streamlines(streamlines, tol_error=0.01, max_segment_length=10):
     100
     >>> len(c_streamline)
     10
-    >>> # Multiple streamlines
+
+    Multiple streamlines:
+
     >>> streamlines = [streamline, streamline[::2]]
     >>> c_streamlines = compress_streamlines(streamlines, tol_error=0.2)
     >>> [len(s) for s in streamlines]
@@ -560,6 +574,13 @@ def compress_streamlines(streamlines, tol_error=0.01, max_segment_length=10):
     >>> [len(s) for s in c_streamlines]
     [10, 7]
 
+    Return the indices of the points being kept for each streamline:
+
+    >>> _, c_indices = compress_streamlines(streamlines, tol_error=0.2,
+                                            return_index=True)
+    >>> c_indices
+    [array([ 0,  3, 16, 23, 24, 42, 59, 60, 75, 99], dtype=int32),
+     array([ 0,  8,  9, 13, 21, 22, 49], dtype=int32)]
 
     Notes
     -----
@@ -584,7 +605,7 @@ def compress_streamlines(streamlines, tol_error=0.01, max_segment_length=10):
         return []
 
     compressed_streamlines = []
-    compressed_index = []
+    compressed_indices = []
     cdef np.npy_intp i
     for i in range(len(streamlines)):
         dtype = streamlines[i].dtype
@@ -601,22 +622,27 @@ def compress_streamlines(streamlines, tol_error=0.01, max_segment_length=10):
             continue
 
         compressed_streamline = np.empty(shape, dtype)
-        index = np.empty(shape[0], np.int32)
+        indices = np.empty(shape[0], np.int32)
 
         if dtype == np.float32:
             nb_points = c_compress_streamline[float2d](streamline, compressed_streamline,
-                                                       tol_error, max_segment_length, index)
+                                                       tol_error, max_segment_length, indices)
         else:
             nb_points = c_compress_streamline[double2d](streamline, compressed_streamline,
-                                                        tol_error, max_segment_length, index)
+                                                        tol_error, max_segment_length, indices)
 
-        index = np.resize(index, nb_points)
+        indices = np.resize(indices, nb_points)
         compressed_streamline.resize((nb_points, streamline.shape[1]))
         # HACK: To avoid memleaks we have to recast with astype(dtype).
         compressed_streamlines.append(compressed_streamline.astype(dtype))
-        compressed_index.append(index)
+        compressed_indices.append(indices)
+
+    ret = compressed_streamlines
 
     if only_one_streamlines:
-        return compressed_streamlines[0], compressed_index
-    else:
-        return compressed_streamlines, compressed_index
+        ret = compressed_streamlines[0]
+
+    if return_index:
+        return ret, compressed_indices
+
+    return ret
