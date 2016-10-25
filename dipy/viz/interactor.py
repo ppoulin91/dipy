@@ -103,6 +103,7 @@ class CustomInteractorStyle(vtkInteractorStyleUser):
                 return
 
     def on_left_button_down(self, obj, evt):
+        self.event.update(evt, self.GetInteractor())
         self.left_button_down = True
         prop = self.get_prop_at_event_position()
         if prop is not None:
@@ -113,12 +114,14 @@ class CustomInteractorStyle(vtkInteractorStyleUser):
             self.default_interactor.OnLeftButtonDown()
 
     def on_left_button_up(self, obj, evt):
+        self.event.update(evt, self.GetInteractor())
         self.left_button_down = False
         self.propagate_event(evt, *self.selected_props["left_button"])
         self.selected_props["left_button"].clear()
         self.default_interactor.OnLeftButtonUp()
 
     def on_right_button_down(self, obj, evt):
+        self.event.update(evt, self.GetInteractor())
         self.right_button_down = True
         prop = self.get_prop_at_event_position()
         if prop is not None:
@@ -129,12 +132,14 @@ class CustomInteractorStyle(vtkInteractorStyleUser):
             self.default_interactor.OnRightButtonDown()
 
     def on_right_button_up(self, obj, evt):
+        self.event.update(evt, self.GetInteractor())
         self.right_button_down = False
         self.propagate_event(evt, *self.selected_props["right_button"])
         self.selected_props["right_button"].clear()
         self.default_interactor.OnRightButtonUp()
 
     def on_middle_button_down(self, obj, evt):
+        self.event.update(evt, self.GetInteractor())
         self.middle_button_down = True
         prop = self.get_prop_at_event_position()
         if prop is not None:
@@ -145,12 +150,14 @@ class CustomInteractorStyle(vtkInteractorStyleUser):
             self.default_interactor.OnMiddleButtonDown()
 
     def on_middle_button_up(self, obj, evt):
+        self.event.update(evt, self.GetInteractor())
         self.middle_button_down = False
         self.propagate_event(evt, *self.selected_props["middle_button"])
         self.selected_props["middle_button"].clear()
         self.default_interactor.OnMiddleButtonUp()
 
     def on_mouse_move(self, obj, evt):
+        self.event.update(evt, self.GetInteractor())
         # Only propagate events to active or selected props.
         self.propagate_event(evt, *(self.active_props |
                                     self.selected_props["left_button"] |
@@ -159,6 +166,7 @@ class CustomInteractorStyle(vtkInteractorStyleUser):
         self.default_interactor.OnMouseMove()
 
     def on_mouse_wheel_forward(self, obj, evt):
+        self.event.update(evt, self.GetInteractor())
         # First, propagate mouse wheel event to underneath prop.
         prop = self.get_prop_at_event_position()
         if prop is not None:
@@ -173,6 +181,7 @@ class CustomInteractorStyle(vtkInteractorStyleUser):
             self.default_interactor.OnMouseWheelForward()
 
     def on_mouse_wheel_backward(self, obj, evt):
+        self.event.update(evt, self.GetInteractor())
         # First, propagate mouse wheel event to underneath prop.
         prop = self.get_prop_at_event_position()
         if prop is not None:
@@ -187,12 +196,15 @@ class CustomInteractorStyle(vtkInteractorStyleUser):
             self.default_interactor.OnMouseWheelBackward()
 
     def on_char(self, obj, evt):
+        self.event.update(evt, self.GetInteractor())
         self.propagate_event(evt, *self.active_props)
 
     def on_key_press(self, obj, evt):
+        self.event.update(evt, self.GetInteractor())
         self.propagate_event(evt, *self.active_props)
 
     def on_key_release(self, obj, evt):
+        self.event.update(evt, self.GetInteractor())
         self.propagate_event(evt, *self.active_props)
 
     def SetInteractor(self, interactor):
@@ -281,8 +293,6 @@ class CustomInteractorStyle(vtkInteractorStyleUser):
         cmd_id = [None]  # Placeholder accessible in the _callback closure.
 
         def _callback(obj, event_name):
-            # Update event information.
-            self.event.update(event_name, self.GetInteractor())
             callback(self, prop, *args)
 
         # Fill the placeholder with the command ID returned by VTK.
