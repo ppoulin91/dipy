@@ -41,25 +41,26 @@ def build_args_parser():
     return p
 
 class Bundle(object):
-    def __init__(self, streamlines, indices=None, color=None):
-        if indices is None:
-            indices = np.arange(len(streamlines))
-
+    def __init__(self, streamlines, color=None):
         self.streamlines = streamlines
-        self.indices = indices
+        self.color = color
         self.clusters = None
         self.clusters_colors = []
-        self.streamlines_colors = np.ones((len(self.indices), 3))
+        self.streamlines_colors = np.ones((len(self.streamlines), 3))
 
         # Create 3D actor to display this bundle's streamlines.
-        self.actor = actor.line(self.streamlines[self.indices], colors=color)
+        self.actor = actor.line(self.streamlines, colors=color)
 
     def cluster(self, threshold):
         metric = MDF(ResampleFeature(nb_points=20))
         qb = QuickBundles(metric=metric, threshold=threshold)
 
-        self.clusters = qb.cluster(self.streamlines, ordering=self.indices)
+        self.clusters = qb.cluster(self.streamlines)
         self.clusters_colors = [color for c, color in zip(self.clusters, distinguishable_colormap(bg=(0, 0, 0)))]
+
+        if len(self.clusters) == 1 and self.color is not None:
+            # Keep initial color
+            self.clusters_colors = [self.color]
 
         for cluster, color in zip(self.clusters, self.clusters_colors):
             self.streamlines_colors[cluster.indices] = color
@@ -76,9 +77,14 @@ class Bundle(object):
         if self.clusters is None:
             raise NameError("Streamlines need to be clustered first!")
 
+        if len(self.clusters) == 1:
+            # Keep initial color
+            bundle = Bundle(self.streamlines[self.clusters[0].indices], self.color)
+            return [bundle]
+
         bundles = []
         for cluster, color in zip(self.clusters, self.clusters_colors):
-            bundle = Bundle(self.streamlines, cluster.indices, color)
+            bundle = Bundle(self.streamlines[cluster.indices], color)
             bundles.append(bundle)
 
         return bundles
@@ -90,44 +96,30 @@ class StreamlinesVizu(object):
         self.screen_size = screen_size
         self.bundles = {}
         self.bundles["/"] = Bundle(self.tfile.streamlines)
-        self.selected_bundle = "/"
+        self.root_bundle = "/"
+        self.selected_bundle = None
         self.last_threshold = None
 
-    def _make_context_menu(self):
-        # "Cluster" button
-        def animate_button_callback(iren, obj, button):
-            # iren: CustomInteractorStyle
-            # obj: vtkActor picked
-            # button: Button2D
-            obj.GetProperty().SetColor(0.5, 0.25, 0)
-            iren.force_render()
-            iren.event.abort()  # Stop propagating the event.
+    def _add_bundle_right_click_callback(self, bundle, bundle_name):
 
-        def cluster_button_callback(iren, obj, button):
-            # iren: CustomInteractorStyle
-            # obj: vtkActor picked
-            # button: Button2D
-            print("Opening clustering panel...")
-
-            # Open panel
+        def open_clustering_panel(iren, obj, *args):
+            # Set maximum threshold value depending on the selected bundle.
+            self.clustering_panel.slider.max_value = bundle.actor.GetLength() / 2.
+            self.clustering_panel.slider.set_ratio(0.5)
+            self.clustering_panel.slider.update()
             self.clustering_panel.set_visibility(True)
+            self.selected_bundle = bundle_name
 
-            # TODO: deactivate bundles context-menu, dim other bundles.
-            button.color = (1, 0.5, 0)  # Restore color.
-            print("Done.")
-            iren.force_render()
-            iren.event.abort()  # Stop propagating the event.
+            # Dim other bundles
+            for k, v in self.bundles.items():
+                if k == bundle_name:
+                    v.actor.GetProperty().SetOpacity(1)
+                else:
+                    v.actor.GetProperty().SetOpacity(0.2)
 
-        cluster_button = gui_2d.Button2D(icon_fnames={'cluster': read_viz_icons(fname='star.png')})
-        cluster_button.color = (1, 0.5, 0)
-        cluster_button.add_callback("LeftButtonPressEvent", animate_button_callback)
-        cluster_button.add_callback("LeftButtonReleaseEvent", cluster_button_callback)
+            bundle.cluster(threshold=self.clustering_panel.slider.value)
 
-        menu = gui_follower.FollowerMenu(position=(0, 0, 0), diameter=87,
-                                         camera=self.ren.GetActiveCamera(),
-                                         elements=[cluster_button])
-
-        return menu
+        self.iren.add_callback(bundle.actor, "RightButtonPressEvent", open_clustering_panel)
 
     def _make_clustering_panel(self):
         # Panel
@@ -156,6 +148,7 @@ class StreamlinesVizu(object):
                 name = "{}{}/".format(self.selected_bundle, i)
                 self.bundles[name] = bundle
                 self.ren.add(bundle.actor)
+                self._add_bundle_right_click_callback(bundle, name)
 
             # Remove original bundle.
             self.ren.rm(self.bundles[self.selected_bundle].actor)
@@ -164,6 +157,10 @@ class StreamlinesVizu(object):
 
             # Close panel
             panel.set_visibility(False)
+
+            # Un-dim bundles
+            for k, v in self.bundles.items():
+                v.actor.GetProperty().SetOpacity(1)
 
             # TODO: apply clustering if needed, close panel, add command to history, re-enable bundles context-menu.
             button.color = (0, 1, 0)  # Restore color.
@@ -207,6 +204,7 @@ class StreamlinesVizu(object):
         slider.add_callback("MouseMoveEvent", disk_move_callback, slider.slider_disk)
         slider.add_callback("MouseMoveEvent", disk_move_callback, slider.slider_line)
         panel.add_element(slider, (0.5, 0.5))
+        panel.slider = slider
 
         return panel
 
@@ -215,12 +213,14 @@ class StreamlinesVizu(object):
         self.iren = CustomInteractorStyle()
         self.show_m = window.ShowManager(self.ren, size=self.screen_size, interactor_style=self.iren)
 
-        # Add objects to the scene.
-        self.ren.add(self.bundles[self.selected_bundle].actor)
+        # Add clustering panel to the scene.
+        self.clustering_panel = self._make_clustering_panel()
+        self.clustering_panel.set_visibility(False)
+        self.ren.add(self.clustering_panel)
 
-        clustering_panel = self._make_clustering_panel()
-        # clustering_panel.set_visibility(False)
-        self.ren.add(clustering_panel)
+        # Add objects to the scene.
+        self.ren.add(self.bundles[self.root_bundle].actor)
+        self._add_bundle_right_click_callback(self.bundles[self.root_bundle], self.root_bundle)
 
         # self.ren.background((1, 0.5, 0))
 

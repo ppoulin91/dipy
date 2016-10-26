@@ -140,6 +140,12 @@ class FollowerMenu(UI):
         assembly.SetUserTransform(T)
         return assembly
 
+    def attach_to(self, actor):
+        position = actor.GetCenter()
+        self.actor.SetPosition(*position)
+        self.menu_orbit.actor.SetPosition(*position)
+        print(position)
+
 
 class FollowerMenuOrbit(UI):
     """ The circular orbit for the follower menu.

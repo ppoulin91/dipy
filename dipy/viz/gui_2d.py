@@ -725,7 +725,6 @@ class LineSlider2D(UI):
         self.value = initial_value
         self.min_value = min_value
         self.max_value = max_value
-        self.range = self.max_value - self.min_value
 
         self.text_template = text_template
 
@@ -808,6 +807,15 @@ class LineSlider2D(UI):
         self.current_state = x_position
         self.update()
 
+    def set_value(self, value):
+        value_range = self.max_value - self.min_value
+        ratio = self.value / value_range
+        self.set_ratio(ratio)
+
+    def set_ratio(self, ratio):
+        position_x = self.left_x_position + ratio*self.length
+        self.set_position((position_x, None))
+
     def update(self):
         """ Updates the slider. """
 
@@ -817,7 +825,8 @@ class LineSlider2D(UI):
         self.ratio = (self.current_state - self.left_x_position) / length
 
         # Compute the selected value considering min_value and max_value.
-        self.value = self.ratio * self.range
+        value_range = self.max_value - self.min_value
+        self.value = self.ratio * value_range
 
         # Update text disk actor.
         self.slider_disk.SetPosition(self.current_state, self.center[1])
