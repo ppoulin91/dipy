@@ -40,8 +40,10 @@ class Panel2D(UI):
         self.center = center
         self.size = size
         self.lower_limits = (self.center[0] - self.size[0] / 2, self.center[1] - self.size[1] / 2)
-
         self.panel = Rectangle2D(size=size, center=center, color=color, opacity=opacity)  # type: Rectangle2D
+
+        self.ui_list = list()
+        self.ui_list.append(self.panel)
 
         self.element_positions = []
         self.element_positions.append((self.panel, 0.5, 0.5))
@@ -60,7 +62,7 @@ class Panel2D(UI):
 
     def get_actors(self):
         """ Returns the actors that compose this UI component. """
-        return [self.panel]
+        return []#self.panel]
 
     def add_element(self, element, relative_position):
         """ Adds an elements to the panel.
@@ -119,6 +121,13 @@ class Panel2D(UI):
             self.set_center((self.center[0] + window_size_change[0], self.center[1] + window_size_change[1]))
         else:
             pass
+
+    def set_visibility(self, visibility):
+        """ Sets visibility of the panel and its components. """
+        for ui in self.ui_list:
+            ui.set_visibility(visibility)
+
+        super(Panel2D, self).set_visibility(visibility)
 
 
 class Button2D(UI):
@@ -692,7 +701,8 @@ class LineSlider2D(UI):
     - A disk on a line (a thin rectangle).
     - Setting disk position.
     """
-    def __init__(self, line_width=5, inner_radius=0, outer_radius=10, center=(450, 20), length=200):
+    def __init__(self, line_width=5, inner_radius=0, outer_radius=10, center=(450, 20), length=200,
+                 initial_value=50, min_value=0, max_value=100, text_template="{value:.1f} ({ratio:.0%})"):
 
         """
 
@@ -712,6 +722,13 @@ class LineSlider2D(UI):
         super(LineSlider2D, self).__init__()
 
         self.length = length
+        self.value = initial_value
+        self.min_value = min_value
+        self.max_value = max_value
+        self.range = self.max_value - self.min_value
+
+        self.text_template = text_template
+
         self.line_width = line_width
         self.center = center
         self.current_state = center[0]
@@ -723,6 +740,9 @@ class LineSlider2D(UI):
         self.text = None
 
         self.build_actors(inner_radius=inner_radius, outer_radius=outer_radius)
+
+        # Setting the disk position will also update everything.
+        self.set_position(self.center)
 
     def build_actors(self, inner_radius, outer_radius):
         """ Builds required actors.
@@ -751,13 +771,8 @@ class LineSlider2D(UI):
         self.slider_disk = vtk.vtkActor2D()
         self.slider_disk.SetMapper(mapper)
 
-        self.slider_disk.SetPosition(self.center[0], self.center[1])
-
         self.text = TextActor2D()
-
         self.text.set_position(position=(self.left_x_position-50, self.center[1]-10))
-        percentage = self.calculate_percentage(current_val=self.current_state)
-        self.text.set_message(text=percentage)
         self.text.font_size(size=16)
 
     def get_actors(self):
@@ -790,35 +805,29 @@ class LineSlider2D(UI):
             x_position = self.center[0] - self.length/2
         if x_position > self.center[0] + self.length/2:
             x_position = self.center[0] + self.length/2
-        self.slider_disk.SetPosition(x_position, self.center[1])
         self.current_state = x_position
+        self.update()
 
-    def calculate_percentage(self, current_val):
-        """ Calculates the percentage to be displayed.
+    def update(self):
+        """ Updates the slider. """
 
-        Parameters
-        ----------
-        current_val : int
-        """
-        percentage = int(((current_val-self.left_x_position)*100)/(self.right_x_position-self.left_x_position))
-        if percentage < 0:
-            percentage = 0
-        if percentage > 100:
-            percentage = 100
-        return str(percentage) + "%"
+        # Compute the ratio determined by the position of the slider disk.
+        length = float(self.right_x_position - self.left_x_position)
+        assert length == self.length
+        self.ratio = (self.current_state - self.left_x_position) / length
 
-    def set_percentage(self, current_val):
-        """ Sets text percentage.
+        # Compute the selected value considering min_value and max_value.
+        self.value = self.ratio * self.range
 
-        Parameters
-        ----------
-        current_val : int
-            This is the x-position of the slider in the 2D coordinate space
-            and not the percentage on the base scale.
-        """
-        self.current_state = current_val
-        percentage = self.calculate_percentage(current_val=current_val)
-        self.text.set_message(text=percentage)
+        # Update text disk actor.
+        self.slider_disk.SetPosition(self.current_state, self.center[1])
+
+        # Update text actor.
+        text = self.text_template.format(ratio=self.ratio, value=self.value)
+        self.text.set_message(text=text)
+        offset_x = 8 * len(text) / 2.
+        offset_y = 30
+        self.text.SetPosition(self.current_state-offset_x, self.center[1] - offset_y)
 
     def set_center(self, position):
         """ Sets the center of the slider to position.
@@ -832,12 +841,10 @@ class LineSlider2D(UI):
         x_change = position[0] - self.center[0]
         self.current_state += x_change
         self.center = position
-        self.set_position((self.current_state, self.center[1]))
-
         self.left_x_position = position[0] - self.length / 2
         self.right_x_position = position[0] + self.length / 2
-        self.text.SetPosition(position[0] - self.length / 2 - 40, position[1] - 10)
-        self.set_percentage(int(self.current_state))
+        self.set_position((self.current_state, self.center[1]))
+        # self.text.SetPosition(position[0] - self.length / 2 - 40, position[1] - 10)
 
 
 class DiskSlider2D(UI):

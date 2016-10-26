@@ -69,6 +69,8 @@ class CustomInteractorStyle(vtkInteractorStyleUser):
         self.middle_button_down = False
         self.active_props = set()
 
+        self._callbacks = []
+
         self.selected_props = {"left_button": set(),
                                "right_button": set(),
                                "middle_button": set()}
@@ -294,6 +296,11 @@ class CustomInteractorStyle(vtkInteractorStyleUser):
 
         def _callback(obj, event_name):
             callback(self, prop, *args)
+
+        # Force keeping a reference to the _callback function to prevent
+        # the garbage collector to dispose it. This is needed since
+        # VTK (at least before v6.3.0) doesn't seem to increase the refcount.
+        self._callbacks.append(_callback)
 
         # Fill the placeholder with the command ID returned by VTK.
         cmd_id[0] = prop.AddObserver(event_type, _callback, priority)

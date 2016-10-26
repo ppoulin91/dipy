@@ -6,8 +6,13 @@ from nibabel.streamlines import Tractogram
 
 from dipy.data import read_viz_icons
 from dipy.fixes import argparse
-from dipy.viz import window, actor, gui_2d
-# from dipy.viz.colormap import distinguishable_colormap
+
+from dipy.segment.clustering import QuickBundles
+from dipy.segment.metric import ResampleFeature
+from dipy.segment.metric import AveragePointwiseEuclideanMetric as MDF
+
+from dipy.viz import window, actor, gui_2d, utils, gui_follower
+from dipy.viz.colormap import distinguishable_colormap
 
 from dipy.viz.interactor import CustomInteractorStyle
 
@@ -35,13 +40,94 @@ def build_args_parser():
 
     return p
 
+class Bundle(object):
+    def __init__(self, streamlines, indices=None, color=None):
+        if indices is None:
+            indices = np.arange(len(streamlines))
+
+        self.streamlines = streamlines
+        self.indices = indices
+        self.clusters = None
+        self.clusters_colors = []
+        self.streamlines_colors = np.ones((len(self.indices), 3))
+
+        # Create 3D actor to display this bundle's streamlines.
+        self.actor = actor.line(self.streamlines[self.indices], colors=color)
+
+    def cluster(self, threshold):
+        metric = MDF(ResampleFeature(nb_points=20))
+        qb = QuickBundles(metric=metric, threshold=threshold)
+
+        self.clusters = qb.cluster(self.streamlines, ordering=self.indices)
+        self.clusters_colors = [color for c, color in zip(self.clusters, distinguishable_colormap(bg=(0, 0, 0)))]
+
+        for cluster, color in zip(self.clusters, self.clusters_colors):
+            self.streamlines_colors[cluster.indices] = color
+
+        colors = []
+        for color, streamline in zip(self.streamlines_colors, self.streamlines):
+            colors += [color] * len(streamline)
+
+        vtk_colors = utils.numpy_to_vtk_colors(255 * np.array(colors))
+        vtk_colors.SetName("Colors")
+        self.actor.GetMapper().GetInput().GetPointData().SetScalars(vtk_colors)
+
+    def get_cluster_as_bundles(self):
+        if self.clusters is None:
+            raise NameError("Streamlines need to be clustered first!")
+
+        bundles = []
+        for cluster, color in zip(self.clusters, self.clusters_colors):
+            bundle = Bundle(self.streamlines, cluster.indices, color)
+            bundles.append(bundle)
+
+        return bundles
 
 class StreamlinesVizu(object):
     # def __init__(self, tractogram_file, screen_size=(1024, 768)):
     def __init__(self, tractogram_file, screen_size=(1360, 768)):
         self.tfile = tractogram_file
         self.screen_size = screen_size
-        self.streamlines_actors = []
+        self.bundles = {}
+        self.bundles["/"] = Bundle(self.tfile.streamlines)
+        self.selected_bundle = "/"
+        self.last_threshold = None
+
+    def _make_context_menu(self):
+        # "Cluster" button
+        def animate_button_callback(iren, obj, button):
+            # iren: CustomInteractorStyle
+            # obj: vtkActor picked
+            # button: Button2D
+            obj.GetProperty().SetColor(0.5, 0.25, 0)
+            iren.force_render()
+            iren.event.abort()  # Stop propagating the event.
+
+        def cluster_button_callback(iren, obj, button):
+            # iren: CustomInteractorStyle
+            # obj: vtkActor picked
+            # button: Button2D
+            print("Opening clustering panel...")
+
+            # Open panel
+            self.clustering_panel.set_visibility(True)
+
+            # TODO: deactivate bundles context-menu, dim other bundles.
+            button.color = (1, 0.5, 0)  # Restore color.
+            print("Done.")
+            iren.force_render()
+            iren.event.abort()  # Stop propagating the event.
+
+        cluster_button = gui_2d.Button2D(icon_fnames={'cluster': read_viz_icons(fname='star.png')})
+        cluster_button.color = (1, 0.5, 0)
+        cluster_button.add_callback("LeftButtonPressEvent", animate_button_callback)
+        cluster_button.add_callback("LeftButtonReleaseEvent", cluster_button_callback)
+
+        menu = gui_follower.FollowerMenu(position=(0, 0, 0), diameter=87,
+                                         camera=self.ren.GetActiveCamera(),
+                                         elements=[cluster_button])
+
+        return menu
 
     def _make_clustering_panel(self):
         # Panel
@@ -50,15 +136,10 @@ class StreamlinesVizu(object):
         panel = gui_2d.Panel2D(center=center, size=size, color=(1, 1, 1), align="left")
 
         # "Apply" button
-        button = gui_2d.Button2D(icon_fnames={'apply': read_viz_icons(fname='checkmark.png')})
-        print(button.color)
-        button.color = (0, 1, 0)
-
         def animate_button_callback(iren, obj, button):
             # iren: CustomInteractorStyle
             # obj: vtkActor picked
             # button: Button2D
-            print("Pressing...")
             obj.GetProperty().SetColor(0, 0.5, 0)
             iren.force_render()
             iren.event.abort()  # Stop propagating the event.
@@ -67,20 +148,65 @@ class StreamlinesVizu(object):
             # iren: CustomInteractorStyle
             # obj: vtkActor picked
             # button: Button2D
-            button.color = (0, 1, 0)  # Restore color.
-
             print("Applying...")
+
+            # Create new actors, one for each new bundle.
+            bundles = self.bundles[self.selected_bundle].get_cluster_as_bundles()
+            for i, bundle in enumerate(bundles):
+                name = "{}{}/".format(self.selected_bundle, i)
+                self.bundles[name] = bundle
+                self.ren.add(bundle.actor)
+
+            # Remove original bundle.
+            self.ren.rm(self.bundles[self.selected_bundle].actor)
+            del self.bundles[self.selected_bundle]
+            self.selected_bundle = None
+
+            # Close panel
+            panel.set_visibility(False)
+
             # TODO: apply clustering if needed, close panel, add command to history, re-enable bundles context-menu.
+            button.color = (0, 1, 0)  # Restore color.
+            print("Done.")
             iren.force_render()
             iren.event.abort()  # Stop propagating the event.
 
+        button = gui_2d.Button2D(icon_fnames={'apply': read_viz_icons(fname='checkmark.png')})
+        button.color = (0, 1, 0)
         button.add_callback("LeftButtonPressEvent", animate_button_callback)
         button.add_callback("LeftButtonReleaseEvent", apply_button_callback)
-        panel.add_element(button, (0.95, 0.05))
+        panel.add_element(button, (0.98, 0.2))
 
-        # panel.add_element(text, (0.1, 0.2))
-        # panel.add_element(slider, (0.5, 0.9))
-        # panel.add_element(disk_slider, (0.7, 0.4))
+        # Threshold slider
+        def disk_press_callback(iren, obj, slider):
+            # iren: CustomInteractorStyle
+            # obj: vtkActor picked
+            # slider: LineSlider2D
+            # Only need to grab the focus.
+            iren.event.abort()  # Stop propagating the event.
+
+
+        def disk_move_callback(iren, obj, slider):
+            # iren: CustomInteractorStyle
+            # obj: vtkActor picked
+            # slider: LineSlider2D
+            position = iren.event.position
+            slider.set_position(position)
+
+            threshold = slider.value
+            if self.last_threshold != threshold:
+                self.bundles[self.selected_bundle].cluster(threshold)
+                self.last_threshold = threshold
+
+            iren.force_render()
+            iren.event.abort()  # Stop propagating the event.
+
+        slider = gui_2d.LineSlider2D(length=1000, text_template="{value:.1f}mm")
+        slider.add_callback("LeftButtonPressEvent", disk_move_callback, slider.slider_line)
+        slider.add_callback("LeftButtonPressEvent", disk_press_callback, slider.slider_disk)
+        slider.add_callback("MouseMoveEvent", disk_move_callback, slider.slider_disk)
+        slider.add_callback("MouseMoveEvent", disk_move_callback, slider.slider_line)
+        panel.add_element(slider, (0.5, 0.5))
 
         return panel
 
@@ -90,15 +216,13 @@ class StreamlinesVizu(object):
         self.show_m = window.ShowManager(self.ren, size=self.screen_size, interactor_style=self.iren)
 
         # Add objects to the scene.
-        # tractogram = self.tfile.tractogram
-        # streamlines = self.tfile.streamlines
-        self.streamlines_actors += [actor.line(self.tfile.streamlines)]
-        self.ren.add(self.streamlines_actors[0])
+        self.ren.add(self.bundles[self.selected_bundle].actor)
 
         clustering_panel = self._make_clustering_panel()
+        # clustering_panel.set_visibility(False)
         self.ren.add(clustering_panel)
 
-        self.ren.background((1, 0.5, 0))
+        # self.ren.background((1, 0.5, 0))
 
     def run(self):
         self.show_m.start()

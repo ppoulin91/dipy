@@ -82,6 +82,11 @@ class UI(object):
         """
         pass
 
+    def set_visibility(self, visibility):
+        """ Sets visibility of this UI compoenent. """
+        for actor in self.get_actors():
+            actor.SetVisibility(visibility)
+
 
 class TextActor2D(vtk.vtkTextActor):
     """ Inherits from the default vtkTextActor and helps setting the text.
