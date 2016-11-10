@@ -42,13 +42,27 @@ def build_args_parser():
 
     return p
 
+
+def animate_button_callback(iren, obj, button):
+    """ General purpose callback that dims a button. """
+    # iren: CustomInteractorStyle
+    # obj: vtkActor picked
+    # button: Button2D
+    color = np.asarray(obj.GetProperty().GetColor())
+    obj.GetProperty().SetColor(*(color*0.5))
+    iren.force_render()
+    iren.event.abort()  # Stop propagating the event.
+
+
 class Bundle(object):
-    def __init__(self, streamlines, color=None):
+    def __init__(self, streamlines, threshold_used=np.inf, color=None):
         self.streamlines = streamlines
         self.color = color
         self.clusters = None
         self.clusters_colors = []
         self.streamlines_colors = np.ones((len(self.streamlines), 3))
+        self.threshold_used = threshold_used
+        self.last_threshold = None
 
         # Create 3D actor to display this bundle's streamlines.
         self.actor = actor.line(self.streamlines, colors=color)
@@ -56,6 +70,7 @@ class Bundle(object):
     def cluster(self, threshold):
         metric = MDF(ResampleFeature(nb_points=20))
         qb = QuickBundles(metric=metric, threshold=threshold)
+        self.last_threshold = threshold
 
         self.clusters = qb.cluster(self.streamlines)
         self.clusters_colors = [color for c, color in zip(self.clusters, distinguishable_colormap(bg=(0, 0, 0)))]
@@ -81,23 +96,26 @@ class Bundle(object):
 
         if len(self.clusters) == 1:
             # Keep initial color
-            bundle = Bundle(self.streamlines[self.clusters[0].indices], self.color)
+            bundle = Bundle(self.streamlines[self.clusters[0].indices], self.last_threshold, self.color)
             return [bundle]
 
         bundles = []
         for cluster, color in zip(self.clusters, self.clusters_colors):
-            bundle = Bundle(self.streamlines[cluster.indices], color)
+            bundle = Bundle(self.streamlines[cluster.indices], self.last_threshold, color)
             bundles.append(bundle)
 
         return bundles
 
 class StreamlinesVizu(object):
-    def __init__(self, tractogram_filename, savedir="./", screen_size=(1024, 768)):
-    # def __init__(self,  tractogram_filename, savedir="./clusters/", screen_size=(1360, 768)):
+    # def __init__(self, tractogram_filename, savedir="./", screen_size=(1024, 768)):
+    def __init__(self,  tractogram_filename, savedir="./clusters/", screen_size=(1360, 768)):
         self.tractogram_filename = tractogram_filename
         filename, _ = os.path.splitext(os.path.basename(self.tractogram_filename))
         self.savedir = pjoin(savedir, filename)
         self.screen_size = screen_size
+
+        self.inliers = Tractogram(affine_to_rasmm=np.eye(4))
+        self.outliers = Tractogram(affine_to_rasmm=np.eye(4))
 
         self.tfile = nib.streamlines.load(self.tractogram_filename)
         self.bundles = {}
@@ -109,8 +127,8 @@ class StreamlinesVizu(object):
 
     def _set_other_bundles_visibility(self, state):
         if state == "visible":
-            print("Showing...")
             self.show_dim_hide_button.color = (0, 1, 0)
+            print("Showing...")
             self.other_bundles_visibility_state = "visible"
             for k, v in self.bundles.items():
                 if k != self.selected_bundle:
@@ -119,7 +137,7 @@ class StreamlinesVizu(object):
 
         elif state == "dimmed":
             print("Dimming...")
-            self.show_dim_hide_button.color = (0.5, 0.5, 0)
+            self.show_dim_hide_button.color = (0, 0, 1)
             self.other_bundles_visibility_state = "dimmed"
             for k, v in self.bundles.items():
                 if k != self.selected_bundle:
@@ -138,16 +156,19 @@ class StreamlinesVizu(object):
         else:
             raise ValueError("Unknown visibility state: {}".format(state))
 
-
     def _add_bundle_right_click_callback(self, bundle, bundle_name):
 
         def open_clustering_panel(iren, obj, *args):
+            self.selected_bundle = bundle_name
+
             # Set maximum threshold value depending on the selected bundle.
             self.clustering_panel.slider.max_value = bundle.actor.GetLength() / 2.
             self.clustering_panel.slider.set_ratio(0.5)
             self.clustering_panel.slider.update()
             self.clustering_panel.set_visibility(True)
-            self.selected_bundle = bundle_name
+
+            # Show like/dislike panel.
+            self.like_dislike_panel.set_visibility(True)
 
             # Dim other bundles
             self.bundles[bundle_name].actor.GetProperty().SetOpacity(1)
@@ -160,6 +181,88 @@ class StreamlinesVizu(object):
 
         self.iren.add_callback(bundle.actor, "RightButtonPressEvent", open_clustering_panel)
 
+    def _make_like_dislike_panel(self):
+        # Panel
+        size = (self.screen_size[0]//25, self.screen_size[1]//10)
+        center = (self.screen_size[0]-size[0]/2., self.screen_size[1] / 2.)  # Middle right of the screen.
+        panel = gui_2d.Panel2D(center=center, size=size, color=(1, 1, 1), align="left")
+
+        # "Like" button
+        def like_bundle():
+            bundle = self.bundles[self.selected_bundle]
+            print("Liking {} streamlines...".format(len(bundle.streamlines)))
+
+            # Keep its streamlines in a tractogram of outliers.
+            self.inliers.streamlines.extend(bundle.streamlines)
+
+            # Remove original bundle.
+            self.ren.rm(bundle.actor)
+            del self.bundles[self.selected_bundle]
+            self.selected_bundle = None
+
+            # Close panels
+            panel.set_visibility(False)
+            self.clustering_panel.set_visibility(False)
+            self._set_other_bundles_visibility("visible")
+
+        def like_onchar_callback(iren, obj, button):
+            if iren.event.key == "a":
+                like_bundle()
+                iren.force_render()
+                iren.event.abort()  # Stop propagating the event.
+
+        def like_button_callback(iren, obj, button):
+            like_bundle()
+            button.color = (0, 0.5, 0)  # Restore color.
+            iren.force_render()
+            iren.event.abort()  # Stop propagating the event.
+
+        like_button = gui_2d.Button2D(icon_fnames={'keep_bundle': read_viz_icons(fname='like_neg.png')})
+        like_button.color = (0, 0.5, 0)
+        like_button.add_callback("LeftButtonPressEvent", animate_button_callback)
+        like_button.add_callback("LeftButtonReleaseEvent", like_button_callback)
+        like_button.add_callback("OnChar", like_onchar_callback)
+        panel.add_element(like_button, (0.5, 0.75))
+
+        # "Dislike" button
+        def dislike_bundle():
+            bundle = self.bundles[self.selected_bundle]
+            print("Disliking {} streamlines...".format(len(bundle.streamlines)))
+
+            # Keep its streamlines in a tractogram of outliers.
+            self.outliers.streamlines.extend(bundle.streamlines)
+
+            # Remove original bundle.
+            self.ren.rm(bundle.actor)
+            del self.bundles[self.selected_bundle]
+            self.selected_bundle = None
+
+            # Close panels
+            panel.set_visibility(False)
+            self.clustering_panel.set_visibility(False)
+            self._set_other_bundles_visibility("visible")
+
+        def dislike_onchar_callback(iren, obj, button):
+            if iren.event.key == "r":
+                dislike_bundle()
+                iren.force_render()
+                iren.event.abort()  # Stop propagating the event.
+
+        def dislike_button_callback(iren, obj, button):
+            dislike_bundle()
+            button.color = (1, 0, 0)  # Restore color.
+            iren.force_render()
+            iren.event.abort()  # Stop propagating the event.
+
+        dislike_button = gui_2d.Button2D(icon_fnames={'delete_bundle': read_viz_icons(fname='dislike_neg.png')})
+        dislike_button.color = (1, 0, 0)
+        dislike_button.add_callback("LeftButtonPressEvent", animate_button_callback)
+        dislike_button.add_callback("LeftButtonReleaseEvent", dislike_button_callback)
+        dislike_button.add_callback("OnChar", dislike_onchar_callback)
+        panel.add_element(dislike_button, (0.5, 0.25))
+
+        return panel
+
     def _make_clustering_panel(self):
         # Panel
         size = (self.screen_size[0], self.screen_size[1]//10)
@@ -167,22 +270,14 @@ class StreamlinesVizu(object):
         panel = gui_2d.Panel2D(center=center, size=size, color=(1, 1, 1), align="left")
 
         # "Apply" button
-        def animate_button_callback(iren, obj, button):
-            # iren: CustomInteractorStyle
-            # obj: vtkActor picked
-            # button: Button2D
-            obj.GetProperty().SetColor(0, 0.5, 0)
-            iren.force_render()
-            iren.event.abort()  # Stop propagating the event.
-
         def apply_button_callback(iren, obj, button):
             # iren: CustomInteractorStyle
             # obj: vtkActor picked
             # button: Button2D
-            print("Applying...")
+            bundles = self.bundles[self.selected_bundle].get_cluster_as_bundles()
+            print("Preparing the new {} clusters...".format(len(bundles)))
 
             # Create new actors, one for each new bundle.
-            bundles = self.bundles[self.selected_bundle].get_cluster_as_bundles()
             for i, bundle in enumerate(bundles):
                 name = "{}{}/".format(self.selected_bundle, i)
                 self.bundles[name] = bundle
@@ -194,8 +289,9 @@ class StreamlinesVizu(object):
             del self.bundles[self.selected_bundle]
             self.selected_bundle = None
 
-            # Close panel
+            # Close panels
             panel.set_visibility(False)
+            self.like_dislike_panel.set_visibility(False)
 
             self._set_other_bundles_visibility("visible")
 
@@ -276,30 +372,54 @@ class StreamlinesVizu(object):
         self.clustering_panel.set_visibility(False)
         self.ren.add(self.clustering_panel)
 
-        # Add "Save" button
-        def animate_save_button_callback(iren, obj, button):
-            # iren: CustomInteractorStyle
-            # obj: vtkActor picked
-            # button: Button2D
-            obj.GetProperty().SetColor(0.5, 0.5, 0.5)
-            iren.force_render()
-            iren.event.abort()  # Stop propagating the event.
+        # Add like/dislike panel to the scene.
+        self.like_dislike_panel = self._make_like_dislike_panel()
+        self.like_dislike_panel.set_visibility(False)
+        self.ren.add(self.like_dislike_panel)
 
+        # Add "Save" button
         def save_button_callback(iren, obj, button):
             # iren: CustomInteractorStyle
             # obj: vtkActor picked
             # button: Button2D
             print("Saving...")
 
-            for i, k in enumerate(sorted(self.bundles.keys())):
-                filename = pjoin(self.savedir, k + ".tck")
-                dirname = os.path.dirname(filename)
-                if not os.path.isdir(dirname):
-                    os.makedirs(dirname)
+            if not os.path.isdir(self.savedir):
+                os.makedirs(self.savedir)
 
-                t = Tractogram(streamlines=self.bundles[k].streamlines,
+            # Remove old clusters
+            files = os.listdir(self.savedir)
+            if "inliers.tck" in files:
+                os.remove(pjoin(self.savedir, "inliers.tck"))
+
+            if "outliers.tck" in files:
+                os.remove(pjoin(self.savedir, "outliers.tck"))
+
+            for i, f in enumerate(files):
+                if "bundle_{}.tck".format(i) in files:
+                    os.remove(pjoin(self.savedir, "bundle_{}.tck".format(i)))
+
+            for i, k in enumerate(sorted(self.bundles.keys())):
+                bundle = self.bundles[k]
+                filename = pjoin(self.savedir, "bundle_{}.tck".format(i))
+
+                t = Tractogram(streamlines=bundle.streamlines,
                                affine_to_rasmm=np.eye(4))
                 nib.streamlines.save(t, filename)
+                print(filename)
+
+
+            # Save inliers, if any.
+            if len(self.inliers):
+                filename = pjoin(self.savedir, "inliers.tck")
+                nib.streamlines.save(self.inliers, filename)
+                print(filename)
+
+            # Save outliers, if any.
+            if len(self.outliers):
+                filename = pjoin(self.savedir, "outliers.tck")
+                nib.streamlines.save(self.outliers, filename)
+                print(filename)
 
             # TODO: apply clustering if needed, close panel, add command to history, re-enable bundles context-menu.
             button.color = (1, 1, 1)  # Restore color.
@@ -309,10 +429,46 @@ class StreamlinesVizu(object):
 
         save_button = gui_2d.Button2D(icon_fnames={'save': read_viz_icons(fname='floppy-disk_neg.png')})
         save_button.color = (1, 1, 1)
-        save_button.add_callback("LeftButtonPressEvent", animate_save_button_callback)
+        save_button.add_callback("LeftButtonPressEvent", animate_button_callback)
         save_button.add_callback("LeftButtonReleaseEvent", save_button_callback)
-        save_button.set_center((0.98, 0.98))
+        save_button.set_center(np.asarray(self.screen_size) - 20)
         self.ren.add(save_button)
+
+        # Add "Reset/Home" button
+        def reset_button_callback(iren, obj, button):
+            # iren: CustomInteractorStyle
+            # obj: vtkActor picked
+            # button: Button2D
+            print("Merging remaining bundles...")
+
+            streamlines = nib.streamlines.ArraySequence()
+            for k, bundle in self.bundles.items():
+                streamlines.extend(bundle.streamlines)
+                self.ren.rm(bundle.actor)
+                del self.bundles[k]
+
+            # Create new root
+            self.bundles["/"] = Bundle(streamlines)
+            self.selected_bundle = None
+
+            # Add new root bundle to the scene.
+            self.ren.add(self.bundles[self.root_bundle].actor)
+            self._add_bundle_right_click_callback(self.bundles[self.root_bundle], self.root_bundle)
+
+            # Close panels
+            self.like_dislike_panel.set_visibility(False)
+            self.clustering_panel.set_visibility(False)
+
+            print("Done.")
+            iren.force_render()
+            iren.event.abort()  # Stop propagating the event.
+
+        reset_button = gui_2d.Button2D(icon_fnames={'reset': read_viz_icons(fname='home3_neg.png')})
+        reset_button.color = (1, 1, 1)
+        reset_button.add_callback("LeftButtonPressEvent", animate_button_callback)
+        reset_button.add_callback("LeftButtonReleaseEvent", reset_button_callback)
+        reset_button.set_center((self.screen_size[0] - 20, self.screen_size[1] - 60))
+        self.ren.add(reset_button)
 
         # Add objects to the scene.
         self.ren.add(self.bundles[self.root_bundle].actor)
