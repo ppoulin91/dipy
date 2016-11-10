@@ -128,7 +128,7 @@ class StreamlinesVizu(object):
     def _set_other_bundles_visibility(self, state):
         if state == "visible":
             self.show_dim_hide_button.color = (0, 1, 0)
-            print("Showing...")
+            # print("Showing...")
             self.other_bundles_visibility_state = "visible"
             for k, v in self.bundles.items():
                 if k != self.selected_bundle:
@@ -136,7 +136,7 @@ class StreamlinesVizu(object):
                     v.actor.GetProperty().SetOpacity(1)
 
         elif state == "dimmed":
-            print("Dimming...")
+            # print("Dimming...")
             self.show_dim_hide_button.color = (0, 0, 1)
             self.other_bundles_visibility_state = "dimmed"
             for k, v in self.bundles.items():
@@ -145,7 +145,7 @@ class StreamlinesVizu(object):
                     v.actor.GetProperty().SetOpacity(0.1)
 
         elif state == "hidden":
-            print("Hidding...")
+            # print("Hidding...")
             self.show_dim_hide_button.color = (1, 0, 0)
             self.other_bundles_visibility_state = "hidden"
             for k, v in self.bundles.items():
@@ -205,12 +205,6 @@ class StreamlinesVizu(object):
             self.clustering_panel.set_visibility(False)
             self._set_other_bundles_visibility("visible")
 
-        def like_onchar_callback(iren, obj, button):
-            if iren.event.key == "a":
-                like_bundle()
-                iren.force_render()
-                iren.event.abort()  # Stop propagating the event.
-
         def like_button_callback(iren, obj, button):
             like_bundle()
             button.color = (0, 0.5, 0)  # Restore color.
@@ -221,7 +215,6 @@ class StreamlinesVizu(object):
         like_button.color = (0, 0.5, 0)
         like_button.add_callback("LeftButtonPressEvent", animate_button_callback)
         like_button.add_callback("LeftButtonReleaseEvent", like_button_callback)
-        like_button.add_callback("OnChar", like_onchar_callback)
         panel.add_element(like_button, (0.5, 0.75))
 
         # "Dislike" button
@@ -242,12 +235,6 @@ class StreamlinesVizu(object):
             self.clustering_panel.set_visibility(False)
             self._set_other_bundles_visibility("visible")
 
-        def dislike_onchar_callback(iren, obj, button):
-            if iren.event.key == "r":
-                dislike_bundle()
-                iren.force_render()
-                iren.event.abort()  # Stop propagating the event.
-
         def dislike_button_callback(iren, obj, button):
             dislike_bundle()
             button.color = (1, 0, 0)  # Restore color.
@@ -258,8 +245,23 @@ class StreamlinesVizu(object):
         dislike_button.color = (1, 0, 0)
         dislike_button.add_callback("LeftButtonPressEvent", animate_button_callback)
         dislike_button.add_callback("LeftButtonReleaseEvent", dislike_button_callback)
-        dislike_button.add_callback("OnChar", dislike_onchar_callback)
         panel.add_element(dislike_button, (0.5, 0.25))
+
+
+        # Add shortcut keys.
+        def like_dislike_onchar_callback(iren, evt_name):
+            if self.selected_bundle is None:
+                return
+
+            if iren.event.key == "r":
+                dislike_bundle()
+            elif iren.event.key == "a":
+                like_bundle()
+
+            iren.force_render()
+            iren.event.abort()  # Stop propagating the event.
+
+        self.iren.AddObserver("CharEvent", like_dislike_onchar_callback)
 
         return panel
 
@@ -447,6 +449,12 @@ class StreamlinesVizu(object):
                 self.ren.rm(bundle.actor)
                 del self.bundles[k]
 
+            if len(streamlines) == 0:
+                print("No streamlines left to merge.")
+                iren.force_render()
+                iren.event.abort()  # Stop propagating the event.
+                return
+
             # Create new root
             self.bundles["/"] = Bundle(streamlines)
             self.selected_bundle = None
@@ -459,7 +467,7 @@ class StreamlinesVizu(object):
             self.like_dislike_panel.set_visibility(False)
             self.clustering_panel.set_visibility(False)
 
-            print("Done.")
+            print("{} streamlines merged.".format(len(streamlines)))
             iren.force_render()
             iren.event.abort()  # Stop propagating the event.
 
