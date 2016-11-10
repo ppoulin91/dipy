@@ -1,5 +1,7 @@
 #! /usr/bin/env python
+import os
 import numpy as np
+from os.path import join as pjoin
 
 import nibabel as nib
 from nibabel.streamlines import Tractogram
@@ -90,15 +92,52 @@ class Bundle(object):
         return bundles
 
 class StreamlinesVizu(object):
-    # def __init__(self, tractogram_file, screen_size=(1024, 768)):
-    def __init__(self, tractogram_file, screen_size=(1360, 768)):
-        self.tfile = tractogram_file
+    def __init__(self, tractogram_filename, savedir="./", screen_size=(1024, 768)):
+    # def __init__(self,  tractogram_filename, savedir="./clusters/", screen_size=(1360, 768)):
+        self.tractogram_filename = tractogram_filename
+        filename, _ = os.path.splitext(os.path.basename(self.tractogram_filename))
+        self.savedir = pjoin(savedir, filename)
         self.screen_size = screen_size
+
+        self.tfile = nib.streamlines.load(self.tractogram_filename)
         self.bundles = {}
         self.bundles["/"] = Bundle(self.tfile.streamlines)
         self.root_bundle = "/"
         self.selected_bundle = None
         self.last_threshold = None
+        self.other_bundles_visibility_state = "visible"
+
+    def _set_other_bundles_visibility(self, state):
+        if state == "visible":
+            print("Showing...")
+            self.show_dim_hide_button.color = (0, 1, 0)
+            self.other_bundles_visibility_state = "visible"
+            for k, v in self.bundles.items():
+                if k != self.selected_bundle:
+                    v.actor.SetVisibility(True)
+                    v.actor.GetProperty().SetOpacity(1)
+
+        elif state == "dimmed":
+            print("Dimming...")
+            self.show_dim_hide_button.color = (0.5, 0.5, 0)
+            self.other_bundles_visibility_state = "dimmed"
+            for k, v in self.bundles.items():
+                if k != self.selected_bundle:
+                    v.actor.SetVisibility(True)
+                    v.actor.GetProperty().SetOpacity(0.1)
+
+        elif state == "hidden":
+            print("Hidding...")
+            self.show_dim_hide_button.color = (1, 0, 0)
+            self.other_bundles_visibility_state = "hidden"
+            for k, v in self.bundles.items():
+                if k != self.selected_bundle:
+                    v.actor.SetVisibility(False)
+                    v.actor.GetProperty().SetOpacity(1)
+
+        else:
+            raise ValueError("Unknown visibility state: {}".format(state))
+
 
     def _add_bundle_right_click_callback(self, bundle, bundle_name):
 
@@ -111,13 +150,13 @@ class StreamlinesVizu(object):
             self.selected_bundle = bundle_name
 
             # Dim other bundles
-            for k, v in self.bundles.items():
-                if k == bundle_name:
-                    v.actor.GetProperty().SetOpacity(1)
-                else:
-                    v.actor.GetProperty().SetOpacity(0.2)
-
+            self.bundles[bundle_name].actor.GetProperty().SetOpacity(1)
+            self.bundles[bundle_name].actor.SetVisibility(True)
+            self._set_other_bundles_visibility("dimmed")
             bundle.cluster(threshold=self.clustering_panel.slider.value)
+
+            iren.force_render()
+            iren.event.abort()  # Stop propagating the event.
 
         self.iren.add_callback(bundle.actor, "RightButtonPressEvent", open_clustering_panel)
 
@@ -158,9 +197,7 @@ class StreamlinesVizu(object):
             # Close panel
             panel.set_visibility(False)
 
-            # Un-dim bundles
-            for k, v in self.bundles.items():
-                v.actor.GetProperty().SetOpacity(1)
+            self._set_other_bundles_visibility("visible")
 
             # TODO: apply clustering if needed, close panel, add command to history, re-enable bundles context-menu.
             button.color = (0, 1, 0)  # Restore color.
@@ -168,11 +205,33 @@ class StreamlinesVizu(object):
             iren.force_render()
             iren.event.abort()  # Stop propagating the event.
 
-        button = gui_2d.Button2D(icon_fnames={'apply': read_viz_icons(fname='checkmark.png')})
+        button = gui_2d.Button2D(icon_fnames={'apply': read_viz_icons(fname='checkmark_neg.png')})
         button.color = (0, 1, 0)
         button.add_callback("LeftButtonPressEvent", animate_button_callback)
         button.add_callback("LeftButtonReleaseEvent", apply_button_callback)
         panel.add_element(button, (0.98, 0.2))
+
+        # "Hide" button
+        def toggle_other_bundles_visibility(iren, obj, button):
+            # iren: CustomInteractorStyle
+            # obj: vtkActor picked
+            # button: Button2D
+
+            if self.other_bundles_visibility_state == "visible":
+                self._set_other_bundles_visibility("dimmed")
+
+            elif self.other_bundles_visibility_state == "dimmed":
+                self._set_other_bundles_visibility("hidden")
+
+            elif self.other_bundles_visibility_state == "hidden":
+                self._set_other_bundles_visibility("visible")
+
+            iren.force_render()
+            iren.event.abort()  # Stop propagating the event.
+
+        self.show_dim_hide_button = gui_2d.Button2D(icon_fnames={'show_dim_hide': read_viz_icons(fname='infinite_neg.png')})
+        self.show_dim_hide_button.add_callback("LeftButtonPressEvent", toggle_other_bundles_visibility)
+        panel.add_element(self.show_dim_hide_button, (0.02, 0.88))
 
         # Threshold slider
         def disk_press_callback(iren, obj, slider):
@@ -181,7 +240,6 @@ class StreamlinesVizu(object):
             # slider: LineSlider2D
             # Only need to grab the focus.
             iren.event.abort()  # Stop propagating the event.
-
 
         def disk_move_callback(iren, obj, slider):
             # iren: CustomInteractorStyle
@@ -218,6 +276,44 @@ class StreamlinesVizu(object):
         self.clustering_panel.set_visibility(False)
         self.ren.add(self.clustering_panel)
 
+        # Add "Save" button
+        def animate_save_button_callback(iren, obj, button):
+            # iren: CustomInteractorStyle
+            # obj: vtkActor picked
+            # button: Button2D
+            obj.GetProperty().SetColor(0.5, 0.5, 0.5)
+            iren.force_render()
+            iren.event.abort()  # Stop propagating the event.
+
+        def save_button_callback(iren, obj, button):
+            # iren: CustomInteractorStyle
+            # obj: vtkActor picked
+            # button: Button2D
+            print("Saving...")
+
+            for i, k in enumerate(sorted(self.bundles.keys())):
+                filename = pjoin(self.savedir, k + ".tck")
+                dirname = os.path.dirname(filename)
+                if not os.path.isdir(dirname):
+                    os.makedirs(dirname)
+
+                t = Tractogram(streamlines=self.bundles[k].streamlines,
+                               affine_to_rasmm=np.eye(4))
+                nib.streamlines.save(t, filename)
+
+            # TODO: apply clustering if needed, close panel, add command to history, re-enable bundles context-menu.
+            button.color = (1, 1, 1)  # Restore color.
+            print("Done.")
+            iren.force_render()
+            iren.event.abort()  # Stop propagating the event.
+
+        save_button = gui_2d.Button2D(icon_fnames={'save': read_viz_icons(fname='floppy-disk_neg.png')})
+        save_button.color = (1, 1, 1)
+        save_button.add_callback("LeftButtonPressEvent", animate_save_button_callback)
+        save_button.add_callback("LeftButtonReleaseEvent", save_button_callback)
+        save_button.set_center((0.98, 0.98))
+        self.ren.add(save_button)
+
         # Add objects to the scene.
         self.ren.add(self.bundles[self.root_bundle].actor)
         self._add_bundle_right_click_callback(self.bundles[self.root_bundle], self.root_bundle)
@@ -232,129 +328,9 @@ def main():
     parser = build_args_parser()
     args = parser.parse_args()
 
-    tfile = nib.streamlines.load(args.tractograms[0])
-
-    vizu = StreamlinesVizu(tfile)
+    vizu = StreamlinesVizu(args.tractograms[0])
     vizu.initialize_scene()
     vizu.run()
-
-
-
-
-
-# from dipy.segment.metric import Metric, EuclideanMetric
-# from dipy.segment.metric import ArcLengthFeature, ResampleFeature
-# from dipy.segment.metric import AveragePointwiseEuclideanMetric as MDF
-# from dipy.segment.clustering import QuickBundles
-
-# import sys
-# import numpy as np
-
-# from dipy.viz import actor, widget, window, utils, fvtk
-# from colormap import distinguishable_colormap
-
-# import nibabel as nib
-
-# tractogram = nib.streamlines.load(sys.argv[1])
-# streamlines = tractogram.streamlines
-# streamlines = np.array([[s[0], s[-1]] for s in streamlines]).reshape((-1, 1, 3))
-# origin = np.array([-28, -36.88, 0.62])
-# dists = np.sqrt(np.sum( (streamlines.reshape((-1, 3)) - origin)**2, axis=1).reshape((-1, 1, 1)))
-# #stream_actor = actor.line(streamlines, [(0, 0, 1)]*len(streamlines), linewidth=3)
-# stream_actor = fvtk.dots(streamlines.reshape((-1, 3)), (0, 0, 1), dot_size=3)
-
-# # Shuffle streamlines ordering
-# rng = np.random.RandomState(42)
-# ordering = np.arange(len(streamlines))
-# rng.shuffle(ordering)
-
-# threshold = 2
-# metric_length = EuclideanMetric()
-# metric = metric_length
-# # metric_length = EuclideanMetric(ArcLengthFeature())
-# # metric_mdf = MDF(ResampleFeature(nb_points=20))
-# # endpoints_mdf = MDF(ResampleFeature(nb_points=2))
-# # metric = endpoints_mdf  # --> Change metric to use with QB.
-
-
-# # Visualization
-# ren = window.Renderer()
-# screen_size = (1200, 900)
-# show_m = window.ShowManager(ren, size=screen_size, interactor_style="trackball")
-# screen_size = ren.GetSize()
-
-# bg = (0, 0, 0)
-# ren.background(bg)
-# ren.projection("parallel")
-
-# ren.add(stream_actor)
-# pts_actor = fvtk.dots(np.array([origin]), (1, 1, 1), dot_size=10)
-# ren.add(pts_actor)
-
-# clusters = None
-
-
-# def run_qb_on_streamlines_actor(stream_actor, streamlines, threshold, ordering=None):
-#     qb = QuickBundles(metric=metric, threshold=threshold)
-
-#     global clusters
-#     clusters = qb.cluster(dists, ordering=ordering)
-#     colors_bundle = np.ones((len(streamlines), 3))
-
-#     for cluster, color in zip(clusters, distinguishable_colormap(bg=bg)):
-#         colors_bundle[cluster.indices] = color
-
-#     colors = []
-#     for color, streamline in zip(colors_bundle, streamlines):
-#         colors += [color] * len(streamline)
-
-#     vtk_colors = utils.numpy_to_vtk_colors(255 * np.array(colors))
-#     del colors_bundle
-#     vtk_colors.SetName("Colors")
-#     stream_actor.GetMapper().GetInput().GetPointData().SetScalars(vtk_colors)
-
-# run_qb_on_streamlines_actor(stream_actor, streamlines, threshold=threshold, ordering=ordering)
-
-
-# def apply_threshold(obj, event):
-#     global threshold
-#     global ordering
-#     global streamlines
-#     global stream_actor
-
-#     new_threshold = np.round(obj.get_value(), decimals=1)
-
-#     obj.set_value(new_threshold)
-#     if threshold == new_threshold:
-#         return
-
-#     threshold = new_threshold
-#     run_qb_on_streamlines_actor(stream_actor, streamlines, threshold=threshold, ordering=ordering)
-
-
-# widget.slider(show_m.iren, show_m.ren,
-#               callback=apply_threshold,
-#               min_value=0.,
-#               max_value=50.,
-#               value=threshold,
-#               label="QB's threshold",
-#               right_normalized_pos=(.98, 0.1),
-#               size=(512, 0), label_format="%0.1lfmm",
-#               color=(1., 1., 1.),
-#               selected_color=(0.86, 0.33, 1.))
-
-# show_m.initialize()
-
-# ren.reset_camera()
-# ren.camera().SetPosition(np.array((0.01, 0.01, 0)) + ren.camera().GetPosition())
-
-# show_m.render()
-# show_m.start()
-
-
-# for i, c in enumerate(clusters):
-#     t = nib.streamlines.Tractogram(c, affine_to_rasmm=np.eye(4))
-#     nib.streamlines.save(t, "cluster_{}.tck".format(i))
 
 
 if __name__ == "__main__":
