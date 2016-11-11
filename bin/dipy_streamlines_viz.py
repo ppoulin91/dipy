@@ -42,6 +42,8 @@ def build_args_parser():
 
     return p
 
+metric = MDF(ResampleFeature(nb_points=30))
+
 
 def animate_button_callback(iren, obj, button):
     """ General purpose callback that dims a button. """
@@ -68,7 +70,6 @@ class Bundle(object):
         self.actor = actor.line(self.streamlines, colors=color)
 
     def cluster(self, threshold):
-        metric = MDF(ResampleFeature(nb_points=20))
         qb = QuickBundles(metric=metric, threshold=threshold)
         self.last_threshold = threshold
 
@@ -116,6 +117,7 @@ class StreamlinesVizu(object):
 
         self.inliers = Tractogram(affine_to_rasmm=np.eye(4))
         self.outliers = Tractogram(affine_to_rasmm=np.eye(4))
+        self.cpt = None  # Used for iterating through the clusters.
 
         self.tfile = nib.streamlines.load(self.tractogram_filename)
         self.bundles = {}
@@ -123,60 +125,101 @@ class StreamlinesVizu(object):
         self.root_bundle = "/"
         self.selected_bundle = None
         self.last_threshold = None
-        self.other_bundles_visibility_state = "visible"
+        self.last_bundles_visibility_state = "dimmed"
 
-    def _set_other_bundles_visibility(self, state):
+    def _set_bundles_visibility(self, state, bundles=None, exclude=[]):
+        if bundles is None:
+            bundles = list(self.bundles.values())
+
         if state == "visible":
             self.show_dim_hide_button.color = (0, 1, 0)
-            # print("Showing...")
-            self.other_bundles_visibility_state = "visible"
-            for k, v in self.bundles.items():
-                if k != self.selected_bundle:
-                    v.actor.SetVisibility(True)
-                    v.actor.GetProperty().SetOpacity(1)
+            # self.last_bundles_visibility_state = "visible"
+            visibility = True
+            opacity = 1
 
         elif state == "dimmed":
-            # print("Dimming...")
             self.show_dim_hide_button.color = (0, 0, 1)
-            self.other_bundles_visibility_state = "dimmed"
-            for k, v in self.bundles.items():
-                if k != self.selected_bundle:
-                    v.actor.SetVisibility(True)
-                    v.actor.GetProperty().SetOpacity(0.1)
+            self.last_bundles_visibility_state = "dimmed"
+            visibility = True
+            opacity = 0.1
 
         elif state == "hidden":
-            # print("Hidding...")
             self.show_dim_hide_button.color = (1, 0, 0)
-            self.other_bundles_visibility_state = "hidden"
-            for k, v in self.bundles.items():
-                if k != self.selected_bundle:
-                    v.actor.SetVisibility(False)
-                    v.actor.GetProperty().SetOpacity(1)
+            self.last_bundles_visibility_state = "hidden"
+            visibility = False
+            opacity = 1
 
         else:
             raise ValueError("Unknown visibility state: {}".format(state))
 
+        # Make the changes
+        for bundle in bundles:
+            if bundle not in exclude:
+                bundle.actor.SetVisibility(visibility)
+                bundle.actor.GetProperty().SetOpacity(opacity)
+
+    def select_next(self):
+        # Sort bundle according to their bundle size.
+        keys = sorted(self.bundles.keys())
+        indices = np.argsort([len(self.bundles[k].streamlines) for k in keys]).tolist()[::-1]
+
+        if self.selected_bundle is None:
+            cpt = 0
+        else:
+            cpt = indices.index(keys.index(self.selected_bundle))
+            cpt = (cpt + 1) % len(keys)
+
+        self.select(keys[indices[cpt]])
+
+    def select_previous(self):
+        # Sort bundle according to their bundle size.
+        keys = sorted(self.bundles.keys())
+        indices = np.argsort([len(self.bundles[k].streamlines) for k in keys]).tolist()[::-1]
+
+        if self.selected_bundle is None:
+            cpt = 0
+        else:
+            cpt = indices.index(keys.index(self.selected_bundle))
+            cpt = (cpt - 1) % len(keys)
+
+        self.select(keys[indices[cpt]])
+
+    def select(self, bundle_name=None):
+        if bundle_name is None:
+            # Close panels
+            self.selected_bundle = None
+            self.like_dislike_panel.set_visibility(False)
+            self.clustering_panel.set_visibility(False)
+            self._set_bundles_visibility("visible")
+            self.iren.force_render()
+            self.cpt = None  # Used for iterating through the clusters.
+            return
+
+        self.selected_bundle = bundle_name
+        bundle = self.bundles[self.selected_bundle]
+        print("Selecting {} streamlines...".format(len(bundle.streamlines)))
+
+        # Set maximum threshold value depending on the selected bundle.
+        self.clustering_panel.slider.max_value = bundle.actor.GetLength() / 2.
+        self.clustering_panel.slider.set_ratio(0.5)
+        self.clustering_panel.slider.update()
+        self.clustering_panel.set_visibility(True)
+
+        # Show like/dislike panel.
+        self.like_dislike_panel.set_visibility(True)
+
+        # Dim other bundles
+        self._set_bundles_visibility("visible", bundles=[bundle])
+        self._set_bundles_visibility(self.last_bundles_visibility_state, exclude=[bundle])
+        bundle.cluster(threshold=self.clustering_panel.slider.value)
+
+        self.iren.force_render()
+
+
     def _add_bundle_right_click_callback(self, bundle, bundle_name):
 
         def open_clustering_panel(iren, obj, *args):
-            self.selected_bundle = bundle_name
-
-            # Set maximum threshold value depending on the selected bundle.
-            self.clustering_panel.slider.max_value = bundle.actor.GetLength() / 2.
-            self.clustering_panel.slider.set_ratio(0.5)
-            self.clustering_panel.slider.update()
-            self.clustering_panel.set_visibility(True)
-
-            # Show like/dislike panel.
-            self.like_dislike_panel.set_visibility(True)
-
-            # Dim other bundles
-            self.bundles[bundle_name].actor.GetProperty().SetOpacity(1)
-            self.bundles[bundle_name].actor.SetVisibility(True)
-            self._set_other_bundles_visibility("dimmed")
-            bundle.cluster(threshold=self.clustering_panel.slider.value)
-
-            iren.force_render()
+            self.select(bundle_name)
             iren.event.abort()  # Stop propagating the event.
 
         self.iren.add_callback(bundle.actor, "RightButtonPressEvent", open_clustering_panel)
@@ -189,6 +232,7 @@ class StreamlinesVizu(object):
 
         # "Like" button
         def like_bundle():
+            bundle_name = self.selected_bundle
             bundle = self.bundles[self.selected_bundle]
             print("Liking {} streamlines...".format(len(bundle.streamlines)))
 
@@ -197,13 +241,8 @@ class StreamlinesVizu(object):
 
             # Remove original bundle.
             self.ren.rm(bundle.actor)
-            del self.bundles[self.selected_bundle]
-            self.selected_bundle = None
-
-            # Close panels
-            panel.set_visibility(False)
-            self.clustering_panel.set_visibility(False)
-            self._set_other_bundles_visibility("visible")
+            self.select_next()
+            del self.bundles[bundle_name]
 
         def like_button_callback(iren, obj, button):
             like_bundle()
@@ -219,6 +258,7 @@ class StreamlinesVizu(object):
 
         # "Dislike" button
         def dislike_bundle():
+            bundle_name = self.selected_bundle
             bundle = self.bundles[self.selected_bundle]
             print("Disliking {} streamlines...".format(len(bundle.streamlines)))
 
@@ -227,13 +267,8 @@ class StreamlinesVizu(object):
 
             # Remove original bundle.
             self.ren.rm(bundle.actor)
-            del self.bundles[self.selected_bundle]
-            self.selected_bundle = None
-
-            # Close panels
-            panel.set_visibility(False)
-            self.clustering_panel.set_visibility(False)
-            self._set_other_bundles_visibility("visible")
+            self.select_next()
+            del self.bundles[bundle_name]
 
         def dislike_button_callback(iren, obj, button):
             dislike_bundle()
@@ -246,7 +281,6 @@ class StreamlinesVizu(object):
         dislike_button.add_callback("LeftButtonPressEvent", animate_button_callback)
         dislike_button.add_callback("LeftButtonReleaseEvent", dislike_button_callback)
         panel.add_element(dislike_button, (0.5, 0.25))
-
 
         # Add shortcut keys.
         def like_dislike_onchar_callback(iren, evt_name):
@@ -280,6 +314,7 @@ class StreamlinesVizu(object):
             print("Preparing the new {} clusters...".format(len(bundles)))
 
             # Create new actors, one for each new bundle.
+            # Sort bundle in decreasing size.
             for i, bundle in enumerate(bundles):
                 name = "{}{}/".format(self.selected_bundle, i)
                 self.bundles[name] = bundle
@@ -289,13 +324,7 @@ class StreamlinesVizu(object):
             # Remove original bundle.
             self.ren.rm(self.bundles[self.selected_bundle].actor)
             del self.bundles[self.selected_bundle]
-            self.selected_bundle = None
-
-            # Close panels
-            panel.set_visibility(False)
-            self.like_dislike_panel.set_visibility(False)
-
-            self._set_other_bundles_visibility("visible")
+            self.select(None)
 
             # TODO: apply clustering if needed, close panel, add command to history, re-enable bundles context-menu.
             button.color = (0, 1, 0)  # Restore color.
@@ -310,19 +339,18 @@ class StreamlinesVizu(object):
         panel.add_element(button, (0.98, 0.2))
 
         # "Hide" button
-        def toggle_other_bundles_visibility(iren, obj, button):
+        def toggle_other_bundles_visibility(iren, *args):
             # iren: CustomInteractorStyle
             # obj: vtkActor picked
             # button: Button2D
 
-            if self.other_bundles_visibility_state == "visible":
-                self._set_other_bundles_visibility("dimmed")
+            if self.last_bundles_visibility_state == "dimmed":
+                self.last_bundles_visibility_state = "hidden"
+                self._set_bundles_visibility("hidden", exclude=[self.bundles[self.selected_bundle]])
 
-            elif self.other_bundles_visibility_state == "dimmed":
-                self._set_other_bundles_visibility("hidden")
-
-            elif self.other_bundles_visibility_state == "hidden":
-                self._set_other_bundles_visibility("visible")
+            elif self.last_bundles_visibility_state == "hidden":
+                self.last_bundles_visibility_state = "dimmed"
+                self._set_bundles_visibility("dimmed", exclude=[self.bundles[self.selected_bundle]])
 
             iren.force_render()
             iren.event.abort()  # Stop propagating the event.
@@ -361,6 +389,17 @@ class StreamlinesVizu(object):
         slider.add_callback("MouseMoveEvent", disk_move_callback, slider.slider_line)
         panel.add_element(slider, (0.5, 0.5))
         panel.slider = slider
+
+        # Add shortcut keys.
+        def toggle_visibility_onchar_callback(iren, evt_name):
+            if self.selected_bundle is None:
+                return
+
+            if iren.event.key.lower() == "space":
+                toggle_other_bundles_visibility(iren)
+
+
+        self.iren.AddObserver("CharEvent", toggle_visibility_onchar_callback)
 
         return panel
 
@@ -408,20 +447,20 @@ class StreamlinesVizu(object):
                 t = Tractogram(streamlines=bundle.streamlines,
                                affine_to_rasmm=np.eye(4))
                 nib.streamlines.save(t, filename)
-                print(filename)
+                print(filename, len(t))
 
 
             # Save inliers, if any.
             if len(self.inliers):
                 filename = pjoin(self.savedir, "inliers.tck")
                 nib.streamlines.save(self.inliers, filename)
-                print(filename)
+                print(filename, len(self.inliers))
 
             # Save outliers, if any.
             if len(self.outliers):
                 filename = pjoin(self.savedir, "outliers.tck")
                 nib.streamlines.save(self.outliers, filename)
-                print(filename)
+                print(filename, len(self.outliers))
 
             # TODO: apply clustering if needed, close panel, add command to history, re-enable bundles context-menu.
             button.color = (1, 1, 1)  # Restore color.
@@ -457,17 +496,14 @@ class StreamlinesVizu(object):
 
             # Create new root
             self.bundles["/"] = Bundle(streamlines)
-            self.selected_bundle = None
 
             # Add new root bundle to the scene.
             self.ren.add(self.bundles[self.root_bundle].actor)
             self._add_bundle_right_click_callback(self.bundles[self.root_bundle], self.root_bundle)
-
-            # Close panels
-            self.like_dislike_panel.set_visibility(False)
-            self.clustering_panel.set_visibility(False)
+            self.select(None)
 
             print("{} streamlines merged.".format(len(streamlines)))
+            button.color = (1, 1, 1)  # Restore color.
             iren.force_render()
             iren.event.abort()  # Stop propagating the event.
 
@@ -481,6 +517,22 @@ class StreamlinesVizu(object):
         # Add objects to the scene.
         self.ren.add(self.bundles[self.root_bundle].actor)
         self._add_bundle_right_click_callback(self.bundles[self.root_bundle], self.root_bundle)
+
+
+        # Add shortcut keys.
+        def select_biggest_cluster_onchar_callback(iren, evt_name):
+            if iren.event.key.lower() == "escape":
+                self.select(None)
+
+            elif iren.event.key.lower() == "tab" or iren.event.key.lower() == "iso_left_tab":
+                if iren.event.ctrl_key or iren.event.key.lower() == "iso_left_tab":
+                    self.select_previous()
+                else:
+                    self.select_next()
+
+            iren.event.abort()  # Stop propagating the event.
+
+        self.iren.AddObserver("CharEvent", select_biggest_cluster_onchar_callback)
 
         # self.ren.background((1, 0.5, 0))
 
