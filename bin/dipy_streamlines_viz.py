@@ -27,6 +27,10 @@ def build_args_parser():
     p.add_argument("tractograms", metavar="tractogram", nargs="+",
                    help="File(s) containing streamlines (.trk|.tck).")
 
+    p.add_argument("--prefix",
+                   help="Prefix used for the name of outputted files. Prefix can be a path. "
+                        "Default: use the basename of the first tractogram")
+
     # p.add_argument("--ref",
     #                help="Reference frame to display the streamlines in (.nii).")
 
@@ -70,6 +74,7 @@ class Bundle(object):
         self.actor = actor.line(self.streamlines, colors=color)
 
     def cluster(self, threshold):
+        print("QB clustring with threshold of {}mm".format(threshold))
         qb = QuickBundles(metric=metric, threshold=threshold)
         self.last_threshold = threshold
 
@@ -109,19 +114,17 @@ class Bundle(object):
 
 class StreamlinesVizu(object):
     # def __init__(self, tractogram_filename, savedir="./", screen_size=(1024, 768)):
-    def __init__(self,  tractogram_filename, savedir="./clusters/", screen_size=(1360, 768)):
-        self.tractogram_filename = tractogram_filename
-        filename, _ = os.path.splitext(os.path.basename(self.tractogram_filename))
-        self.savedir = pjoin(savedir, filename)
+    def __init__(self, tractogram, prefix="", screen_size=(1360, 768)):
+        self.prefix = prefix
+        self.savedir = os.path.dirname(pjoin(".", self.prefix))
         self.screen_size = screen_size
 
         self.inliers = Tractogram(affine_to_rasmm=np.eye(4))
         self.outliers = Tractogram(affine_to_rasmm=np.eye(4))
         self.cpt = None  # Used for iterating through the clusters.
 
-        self.tfile = nib.streamlines.load(self.tractogram_filename)
         self.bundles = {}
-        self.bundles["/"] = Bundle(self.tfile.streamlines)
+        self.bundles["/"] = Bundle(tractogram.streamlines)
         self.root_bundle = "/"
         self.selected_bundle = None
         self.last_threshold = None
@@ -424,25 +427,24 @@ class StreamlinesVizu(object):
             # obj: vtkActor picked
             # button: Button2D
             print("Saving...")
-
             if not os.path.isdir(self.savedir):
                 os.makedirs(self.savedir)
 
             # Remove old clusters
             files = os.listdir(self.savedir)
             if "inliers.tck" in files:
-                os.remove(pjoin(self.savedir, "inliers.tck"))
+                os.remove(self.prefix + "inliers.tck")
 
             if "outliers.tck" in files:
-                os.remove(pjoin(self.savedir, "outliers.tck"))
+                os.remove(self.prefix + "outliers.tck")
 
             for i, f in enumerate(files):
                 if "bundle_{}.tck".format(i) in files:
-                    os.remove(pjoin(self.savedir, "bundle_{}.tck".format(i)))
+                    os.remove(self.prefix + "bundle_{}.tck".format(i))
 
             for i, k in enumerate(sorted(self.bundles.keys())):
                 bundle = self.bundles[k]
-                filename = pjoin(self.savedir, "bundle_{}.tck".format(i))
+                filename = self.prefix + "bundle_{}.tck".format(i)
 
                 t = Tractogram(streamlines=bundle.streamlines,
                                affine_to_rasmm=np.eye(4))
@@ -452,13 +454,13 @@ class StreamlinesVizu(object):
 
             # Save inliers, if any.
             if len(self.inliers):
-                filename = pjoin(self.savedir, "inliers.tck")
+                filename = self.prefix + "inliers.tck"
                 nib.streamlines.save(self.inliers, filename)
                 print(filename, len(self.inliers))
 
             # Save outliers, if any.
             if len(self.outliers):
-                filename = pjoin(self.savedir, "outliers.tck")
+                filename = self.prefix + "outliers.tck"
                 nib.streamlines.save(self.outliers, filename)
                 print(filename, len(self.outliers))
 
@@ -544,7 +546,17 @@ def main():
     parser = build_args_parser()
     args = parser.parse_args()
 
-    vizu = StreamlinesVizu(args.tractograms[0])
+    prefix = args.prefix
+    if args.prefix is None:
+        prefix, _ = os.path.splitext(os.path.basename(args.tractograms[0]))
+
+    # Load all tractograms
+    tractogram = nib.streamlines.Tractogram(affine_to_rasmm=np.eye(4))
+    for f in args.tractograms:
+        tfile = nib.streamlines.load(f)
+        tractogram += tfile.tractogram
+
+    vizu = StreamlinesVizu(tractogram, prefix=prefix)
     vizu.initialize_scene()
     vizu.run()
 
