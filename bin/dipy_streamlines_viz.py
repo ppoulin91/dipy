@@ -6,7 +6,7 @@ from os.path import join as pjoin
 import nibabel as nib
 from nibabel.streamlines import Tractogram
 
-from dipy.data import read_viz_icons
+from dipy.data import fetch_viz_icons, read_viz_icons
 from dipy.fixes import argparse
 
 from dipy.segment.clustering import QuickBundles
@@ -312,7 +312,15 @@ class StreamlinesVizu(object):
             self.select(bundle_name)
             iren.event.abort()  # Stop propagating the event.
 
+        def ctrl_leftcklick_open_clustering_panel(iren, obj, *args):
+            if not iren.event.ctrl_key:
+                return
+
+            self.select(bundle_name)
+            iren.event.abort()  # Stop propagating the event.
+
         self.iren.add_callback(bundle.actor, "RightButtonPressEvent", open_clustering_panel)
+        self.iren.add_callback(bundle.actor, "LeftButtonPressEvent", ctrl_leftcklick_open_clustering_panel)  # Support for MAC OSX
 
     def _make_like_dislike_panel(self):
         # Panel
@@ -665,6 +673,7 @@ class StreamlinesVizu(object):
 
 
 def main():
+    fetch_viz_icons()
     parser = build_args_parser()
     args = parser.parse_args()
 
