@@ -139,7 +139,6 @@ class Button2D(UI):
 
     def __init__(self, icon_fnames, size=(30, 30)):
         """
-
         Parameters
         ----------
         size : 2-tuple of int, optional
@@ -159,12 +158,10 @@ class Button2D(UI):
     def build_icons(self, icon_fnames):
         """ Converts file names to vtkImageDataGeometryFilters.
         A pre-processing step to prevent re-read of file names during every state change.
-
         Parameters
         ----------
         icon_fnames : dict
             {iconname: filename, iconname: filename, ...}
-
         Returns
         -------
         icons : dict
@@ -175,19 +172,22 @@ class Button2D(UI):
             png = vtk.vtkPNGReader()
             png.SetFileName(icon_fname)
             png.Update()
-
-            texture = vtk.vtkTexture()
-            texture.SetInputConnection(png.GetOutputPort())
-            icons[icon_name] = texture, png.GetOutput().GetExtent()
+            icons[icon_name] = png.GetOutput()
 
         return icons
 
     @property
     def size(self):
+        """Gets the button size."""
         return self._size
 
     @size.setter
     def size(self, size):
+        """Sets the button size.
+        Parameters
+        ----------
+        size : (float, float)
+        """
         self._size = np.asarray(size)
 
         # Update actor.
@@ -199,24 +199,32 @@ class Button2D(UI):
 
     @property
     def color(self):
+        """Gets the button's color."""
         color = self.actor.GetProperty().GetColor()
         return np.asarray(color)
 
     @color.setter
     def color(self, color):
+        """Sets the button's color.
+        Parameters
+        ----------
+        color : (float, float, float)
+        """
         self.actor.GetProperty().SetColor(*color)
 
     def scale(self, size):
-        self.size *= size
-
-    def build_actor(self, icon, center=None):
-        """ Return an image as a 2D actor with a specific position.
-
+        """Scales the button.
         Parameters
         ----------
-        icon : imageDataGeometryFilter
-        center : (float, float)
+        size : (float, float)
+        """
+        self.size *= size
 
+    def build_actor(self, icon):
+        """ Return an image as a 2D actor with a specific position.
+        Parameters
+        ----------
+        icon : vtkImageData
         Returns
         -------
         button : vtkTexturedActor2D
@@ -227,7 +235,7 @@ class Button2D(UI):
         self.texture_polydata = vtk.vtkPolyData()
         self.texture_points = vtk.vtkPoints()
         self.texture_points.SetNumberOfPoints(4)
-        self.size = icon[1]
+        self.size = icon.GetExtent()
 
         polys = vtk.vtkCellArray()
         polys.InsertNextCell(4)
@@ -247,19 +255,22 @@ class Button2D(UI):
         self.texture_polydata.GetPointData().SetTCoords(tc)
 
         texture_mapper = vtk.vtkPolyDataMapper2D()
-        texture_mapper.SetInputData(self.texture_polydata)
+        if major_version <= 5:
+            texture_mapper.SetInput(self.texture_polydata)
+        else:
+            texture_mapper.SetInputData(self.texture_polydata)
 
         button = vtk.vtkTexturedActor2D()
         button.SetMapper(texture_mapper)
-        button.SetTexture(icon[0])
+
+        self.texture = vtk.vtkTexture()
+        button.SetTexture(self.texture)
 
         button_property = vtk.vtkProperty2D()
         button_property.SetOpacity(1.0)
         button.SetProperty(button_property)
 
-        if center is not None:
-            button.SetCenter(*center)
-
+        self.set_icon(icon)
         return button
 
     def get_actors(self):
@@ -268,7 +279,6 @@ class Button2D(UI):
 
     def add_callback(self, event_type, callback):
         """ Adds events to button actor.
-
         Parameters
         ----------
         event_type : string
@@ -280,16 +290,17 @@ class Button2D(UI):
 
     def set_icon(self, icon):
         """ Modifies the icon used by the vtkTexturedActor2D.
-
         Parameters
         ----------
         icon : imageDataGeometryFilter
         """
-        self.actor.GetMapper().SetInputConnection(icon.GetOutputPort())
+        if major_version <= 5:
+            self.texture.SetInput(icon)
+        else:
+            self.texture.SetInputData(icon)
 
     def next_icon_name(self):
         """ Returns the next icon name while cycling through icons.
-
         """
         self.current_icon_id += 1
         if self.current_icon_id == len(self.icons):
@@ -305,14 +316,12 @@ class Button2D(UI):
 
     def set_center(self, position):
         """ Sets the icon center to position.
-
         Parameters
         ----------
         position : (float, float)
         """
         new_position = np.asarray(position) - self.size / 2.
         self.actor.SetPosition(*new_position)
-
 
 class TextBox2D(UI):
     """ An editable 2D text box that behaves as a UI component.

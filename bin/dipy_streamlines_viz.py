@@ -14,7 +14,7 @@ from dipy.segment.metric import ResampleFeature
 from dipy.segment.metric import AveragePointwiseEuclideanMetric as MDF
 
 from dipy.viz import window, actor, gui_2d, utils, gui_follower
-from dipy.viz.colormap import distinguishable_colormap
+from dipy.viz.colormap import distinguishable_colormap, line_colors
 
 from dipy.viz.interactor import CustomInteractorStyle
 
@@ -61,38 +61,120 @@ def animate_button_callback(iren, obj, button):
 
 
 class Bundle(object):
-    def __init__(self, streamlines, threshold_used=np.inf, color=None):
+    def __init__(self, streamlines, centroid=None, threshold_used=np.inf, color=None):
         self.streamlines = streamlines
         self.color = color
-        self.clusters = None
-        self.clusters_colors = []
+        self.centroid = centroid
+        self.clusters = []
+        self.clusters_colors = [None]
         self.streamlines_colors = np.ones((len(self.streamlines), 3))
         self.threshold_used = threshold_used
         self.last_threshold = None
+        self.ren = None
 
         # Create 3D actor to display this bundle's streamlines.
         self.actor = actor.line(self.streamlines, colors=color)
+        self.centroid_actors = []
+        self.has_changed = True
+        self.centroids_visible = False
+        self.streamlines_visible = True
 
-    def cluster(self, threshold):
-        print("QB clustring with threshold of {}mm".format(threshold))
+        #
+        lines_range = range(len(self.streamlines))
+        points_per_line = self.streamlines._lengths.astype(np.intp)
+        cols_arr = line_colors(self.streamlines)
+        colors_mapper = np.repeat(lines_range, points_per_line, axis=0)
+        self.original_colors = cols_arr[colors_mapper]
+        if self.color is not None:
+            self.original_colors[:] = self.color
+
+        self._cluster(np.inf)
+
+    def add_to_renderer(self, ren):
+        self.ren = ren
+        ren.add(self.actor)
+
+    def remove_from_renderer(self, ren):
+        ren.rm(self.actor)
+        ren.rm(*self.centroid_actors)
+        self.centroid_actors = []
+
+    def update(self):
+        if not self.has_changed:
+            return  # Nothing changed
+
+        self.has_changed = False
+
+        # Update centroids actor.
+        # Remove old centroid actors.
+        self.ren.rm(*self.centroid_actors)
+
+        # Create an actor for every centroid.
+        self.centroid_actors = []
+        for cluster, color in zip(self.clusters, self.clusters_colors):
+            centroid_actor = actor.streamtube([cluster.centroid], colors=color,
+                                              linewidth=0.1+0.1*np.log(len(cluster)))
+            centroid_actor.SetVisibility(self.centroids_visible)
+            self.ren.add(centroid_actor)
+            # TODO add a click callback
+            self.centroid_actors.append(centroid_actor)
+
+    def show_centroids(self):
+        self.update()
+        self.centroids_visible = True
+        for a in self.centroid_actors:
+            a.SetVisibility(True)
+
+    def hide_centroids(self):
+        self.centroids_visible = False
+        for a in self.centroid_actors:
+            a.SetVisibility(False)
+
+    def show_streamlines(self):
+        self.streamlines_visible = True
+        self.actor.SetVisibility(True)
+
+    def hide_streamlines(self):
+        self.streamlines_visible = False
+        self.actor.SetVisibility(False)
+
+    def preview(self, threshold):
+        self._cluster(threshold)
+        self.update()
+
+    def reset(self):
+        self._cluster(np.inf)
+        self.update()
+
+    def _cluster(self, threshold):
         qb = QuickBundles(metric=metric, threshold=threshold)
         self.last_threshold = threshold
 
         self.clusters = qb.cluster(self.streamlines)
         self.clusters_colors = [color for c, color in zip(self.clusters, distinguishable_colormap(bg=(0, 0, 0)))]
 
-        if len(self.clusters) == 1 and self.color is not None:
+        if threshold < np.inf:
+            print("{} clusters with QB threshold of {}mm".format(len(self.clusters), threshold))
+
+        # Keep a flag telling there have been changes.
+        self.has_changed = True
+
+        if len(self.clusters) == 1:
             # Keep initial color
-            self.clusters_colors = [self.color]
+            self.clusters_colors = [self.color] if self.color is not None else [(0, 0, 1)]
+            vtk_colors = utils.numpy_to_vtk_colors(255 * self.original_colors)
+            vtk_colors.SetName("Colors")
+            self.actor.GetMapper().GetInput().GetPointData().SetScalars(vtk_colors)
+            return
 
         for cluster, color in zip(self.clusters, self.clusters_colors):
             self.streamlines_colors[cluster.indices] = color
 
-        colors = []
+        self.colors = []
         for color, streamline in zip(self.streamlines_colors, self.streamlines):
-            colors += [color] * len(streamline)
+            self.colors += [color] * len(streamline)
 
-        vtk_colors = utils.numpy_to_vtk_colors(255 * np.array(colors))
+        vtk_colors = utils.numpy_to_vtk_colors(255 * np.array(self.colors))
         vtk_colors.SetName("Colors")
         self.actor.GetMapper().GetInput().GetPointData().SetScalars(vtk_colors)
 
@@ -101,13 +183,13 @@ class Bundle(object):
             raise NameError("Streamlines need to be clustered first!")
 
         if len(self.clusters) == 1:
-            # Keep initial color
-            bundle = Bundle(self.streamlines[self.clusters[0].indices], self.last_threshold, self.color)
+            # Handle this case separatly just so we can keep the initial bundle color.
+            bundle = Bundle(self.streamlines[self.clusters[0].indices], self.clusters[0].centroid, self.last_threshold, self.color)
             return [bundle]
 
         bundles = []
         for cluster, color in zip(self.clusters, self.clusters_colors):
-            bundle = Bundle(self.streamlines[cluster.indices], self.last_threshold, color)
+            bundle = Bundle(self.streamlines[cluster.indices], cluster.centroid, self.last_threshold, color)
             bundles.append(bundle)
 
         return bundles
@@ -188,6 +270,11 @@ class StreamlinesVizu(object):
         self.select(keys[indices[cpt]])
 
     def select(self, bundle_name=None):
+        # Unselect first, if possible.
+        if self.selected_bundle is not None and self.selected_bundle in self.bundles:
+            bundle = self.bundles[self.selected_bundle]
+            bundle.reset()
+
         if bundle_name is None:
             # Close panels
             self.selected_bundle = None
@@ -214,7 +301,7 @@ class StreamlinesVizu(object):
         # Dim other bundles
         self._set_bundles_visibility("visible", bundles=[bundle])
         self._set_bundles_visibility(self.last_bundles_visibility_state, exclude=[bundle])
-        bundle.cluster(threshold=self.clustering_panel.slider.value)
+        bundle.preview(threshold=self.clustering_panel.slider.value)
 
         self.iren.force_render()
 
@@ -243,7 +330,7 @@ class StreamlinesVizu(object):
             self.inliers.streamlines.extend(bundle.streamlines)
 
             # Remove original bundle.
-            self.ren.rm(bundle.actor)
+            self.ren.rm(bundle)
             self.select_next()
             del self.bundles[bundle_name]
 
@@ -269,7 +356,7 @@ class StreamlinesVizu(object):
             self.outliers.streamlines.extend(bundle.streamlines)
 
             # Remove original bundle.
-            self.ren.rm(bundle.actor)
+            self.ren.rm(bundle)
             self.select_next()
             del self.bundles[bundle_name]
 
@@ -321,11 +408,11 @@ class StreamlinesVizu(object):
             for i, bundle in enumerate(bundles):
                 name = "{}{}/".format(self.selected_bundle, i)
                 self.bundles[name] = bundle
-                self.ren.add(bundle.actor)
+                self.ren.add(bundle)
                 self._add_bundle_right_click_callback(bundle, name)
 
             # Remove original bundle.
-            self.ren.rm(self.bundles[self.selected_bundle].actor)
+            self.ren.rm(self.bundles[self.selected_bundle])
             del self.bundles[self.selected_bundle]
             self.select(None)
 
@@ -379,7 +466,7 @@ class StreamlinesVizu(object):
 
             threshold = slider.value
             if self.last_threshold != threshold:
-                self.bundles[self.selected_bundle].cluster(threshold)
+                self.bundles[self.selected_bundle].preview(threshold)
                 self.last_threshold = threshold
 
             iren.force_render()
@@ -487,7 +574,7 @@ class StreamlinesVizu(object):
             streamlines = nib.streamlines.ArraySequence()
             for k, bundle in self.bundles.items():
                 streamlines.extend(bundle.streamlines)
-                self.ren.rm(bundle.actor)
+                self.ren.rm(bundle)
                 del self.bundles[k]
 
             if len(streamlines) == 0:
@@ -500,7 +587,7 @@ class StreamlinesVizu(object):
             self.bundles["/"] = Bundle(streamlines)
 
             # Add new root bundle to the scene.
-            self.ren.add(self.bundles[self.root_bundle].actor)
+            self.ren.add(self.bundles[self.root_bundle])
             self._add_bundle_right_click_callback(self.bundles[self.root_bundle], self.root_bundle)
             self.select(None)
 
@@ -516,10 +603,35 @@ class StreamlinesVizu(object):
         reset_button.set_center((self.screen_size[0] - 20, self.screen_size[1] - 60))
         self.ren.add(reset_button)
 
-        # Add objects to the scene.
-        self.ren.add(self.bundles[self.root_bundle].actor)
-        self._add_bundle_right_click_callback(self.bundles[self.root_bundle], self.root_bundle)
 
+        # Add toggle "Centroid/Streamlines" button
+        def centroids_toggle_button_callback(iren, obj, button):
+            if button.current_icon_name == "streamlines":
+                button.next_icon()
+                for bundle in self.bundles.values():
+                    bundle.show_centroids()
+                    bundle.hide_streamlines()
+
+            elif button.current_icon_name == "centroids":
+                button.next_icon()
+                for bundle in self.bundles.values():
+                    bundle.hide_centroids()
+                    bundle.show_streamlines()
+
+            iren.force_render()
+            iren.event.abort()  # Stop propagating the event.
+
+        centroids_toggle_button = gui_2d.Button2D(icon_fnames={'streamlines': read_viz_icons(fname='database_neg.png'),
+                                                               'centroids': read_viz_icons(fname='centroid_neg.png')})
+        centroids_toggle_button.color = (1, 1, 1)
+        # centroids_toggle_button.add_callback("LeftButtonPressEvent", animate_button_callback)
+        centroids_toggle_button.add_callback("LeftButtonReleaseEvent", centroids_toggle_button_callback)
+        centroids_toggle_button.set_center((20, self.screen_size[1] - 60))
+        self.ren.add(centroids_toggle_button)
+
+        # Add objects to the scene.
+        self.ren.add(self.bundles[self.root_bundle])
+        self._add_bundle_right_click_callback(self.bundles[self.root_bundle], self.root_bundle)
 
         # Add shortcut keys.
         def select_biggest_cluster_onchar_callback(iren, evt_name):
@@ -531,6 +643,16 @@ class StreamlinesVizu(object):
                     self.select_previous()
                 else:
                     self.select_next()
+            elif iren.event.key == "c":
+                for bundle in self.bundles.values():
+                    bundle.show_centroids()
+                    bundle.hide_streamlines()
+                iren.force_render()
+            elif iren.event.key == "C":
+                for bundle in self.bundles.values():
+                    bundle.hide_centroids()
+                    bundle.show_streamlines()
+                iren.force_render()
 
             iren.event.abort()  # Stop propagating the event.
 
