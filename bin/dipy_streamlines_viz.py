@@ -27,6 +27,9 @@ def build_args_parser():
     p.add_argument("tractograms", metavar="tractogram", nargs="+",
                    help="File(s) containing streamlines (.trk|.tck).")
 
+    p.add_argument("--anat",
+                   help="Anatomy file to display underneath the tractogram(s) (.nii|.nii.gz)")
+
     p.add_argument("--prefix",
                    help="Prefix used for the name of outputted files. Prefix can be a path. "
                         "Default: use the basename of the first tractogram")
@@ -196,7 +199,7 @@ class Bundle(object):
 
 class StreamlinesVizu(object):
     # def __init__(self, tractogram_filename, savedir="./", screen_size=(1024, 768)):
-    def __init__(self, tractogram, prefix="", screen_size=(1360, 768)):
+    def __init__(self, tractogram, anat=None, prefix="", screen_size=(1360, 768)):
         self.prefix = prefix
         self.savedir = os.path.dirname(pjoin(".", self.prefix))
         self.screen_size = screen_size
@@ -211,6 +214,8 @@ class StreamlinesVizu(object):
         self.selected_bundle = None
         self.last_threshold = None
         self.last_bundles_visibility_state = "dimmed"
+        self.anat = anat
+        self.anat_actor = None
 
     def _set_bundles_visibility(self, state, bundles=None, exclude=[]):
         if bundles is None:
@@ -304,7 +309,6 @@ class StreamlinesVizu(object):
         bundle.preview(threshold=self.clustering_panel.slider.value)
 
         self.iren.force_render()
-
 
     def _add_bundle_right_click_callback(self, bundle, bundle_name):
 
@@ -501,6 +505,97 @@ class StreamlinesVizu(object):
 
         return panel
 
+    def _make_anatomy_panel(self, axial_slicer, sagittal_slicer, coronal_slicer):
+        # Panel
+        size = (self.screen_size[0]//8, self.screen_size[1]//6)
+        center = (size[0] / 2., np.ceil(self.screen_size[1] / 10. + size[1]) )  # Lower left corner of the screen.
+        panel = gui_2d.Panel2D(center=center, size=size, color=(0., 0., 0.), align="left")
+
+        # Create all sliders that will be responsible of moving the slices of the anatomy.
+        length = size[0] - 10
+        text_template = lambda obj: "{value:}".format(value=int(obj.value))
+        axial_slider = gui_2d.LineSlider2D(length=length, text_template=text_template)
+        coronal_slider = gui_2d.LineSlider2D(length=length, text_template=text_template)
+        sagittal_slider = gui_2d.LineSlider2D(length=length, text_template=text_template)
+
+        # Common to all sliders.
+        def disk_press_callback(iren, obj, slider):
+            # iren: CustomInteractorStyle
+            # obj: vtkActor picked
+            # slider: LineSlider2D
+            # Only need to grab the focus.
+            iren.event.abort()  # Stop propagating the event.
+
+        def axial_disk_move_callback(iren, obj, slider):
+            # iren: CustomInteractorStyle
+            # obj: vtkActor picked
+            # slider: LineSlider2D
+            position = iren.event.position
+            slider.set_position(position)
+            # Move slices accordingly.
+            axial_slicer.display(x=int(slider.value))
+            iren.force_render()
+            iren.event.abort()  # Stop propagating the event.
+
+        def coronal_disk_move_callback(iren, obj, slider):
+            # iren: CustomInteractorStyle
+            # obj: vtkActor picked
+            # slider: LineSlider2D
+            position = iren.event.position
+            slider.set_position(position)
+            # Move slices accordingly.
+            coronal_slicer.display(y=int(slider.value))
+            iren.force_render()
+            iren.event.abort()  # Stop propagating the event.
+
+        def sagittal_disk_move_callback(iren, obj, slider):
+            # iren: CustomInteractorStyle
+            # obj: vtkActor picked
+            # slider: LineSlider2D
+            position = iren.event.position
+            slider.set_position(position)
+            # Move slices accordingly.
+            sagittal_slicer.display(z=int(slider.value))
+            iren.force_render()
+            iren.event.abort()  # Stop propagating the event.
+
+        # Add callbacks to the sliders.
+        axial_slider.add_callback("LeftButtonPressEvent", axial_disk_move_callback, axial_slider.slider_line)
+        axial_slider.add_callback("LeftButtonPressEvent", disk_press_callback, axial_slider.slider_disk)
+        axial_slider.add_callback("MouseMoveEvent", axial_disk_move_callback, axial_slider.slider_disk)
+        axial_slider.add_callback("MouseMoveEvent", axial_disk_move_callback, axial_slider.slider_line)
+        axial_slider.max_value = axial_slicer.shape[0]
+        axial_slider.set_ratio(0.5)
+        axial_slider.update()
+
+        coronal_slider.add_callback("LeftButtonPressEvent", coronal_disk_move_callback, coronal_slider.slider_line)
+        coronal_slider.add_callback("LeftButtonPressEvent", disk_press_callback, coronal_slider.slider_disk)
+        coronal_slider.add_callback("MouseMoveEvent", coronal_disk_move_callback, coronal_slider.slider_disk)
+        coronal_slider.add_callback("MouseMoveEvent", coronal_disk_move_callback, coronal_slider.slider_line)
+        coronal_slider.max_value = coronal_slicer.shape[1]
+        coronal_slider.set_ratio(0.5)
+        coronal_slider.update()
+
+        sagittal_slider.add_callback("LeftButtonPressEvent", sagittal_disk_move_callback, sagittal_slider.slider_line)
+        sagittal_slider.add_callback("LeftButtonPressEvent", disk_press_callback, sagittal_slider.slider_disk)
+        sagittal_slider.add_callback("MouseMoveEvent", sagittal_disk_move_callback, sagittal_slider.slider_disk)
+        sagittal_slider.add_callback("MouseMoveEvent", sagittal_disk_move_callback, sagittal_slider.slider_line)
+        sagittal_slider.max_value = sagittal_slicer.shape[2]
+        sagittal_slider.set_ratio(0.5)
+        sagittal_slider.update()
+
+        # Add the slicers to the panel.
+        panel.add_element(axial_slider, (0.5, 0.15))
+        panel.add_element(coronal_slider, (0.5, 0.5))
+        panel.add_element(sagittal_slider, (0.5, 0.85))
+
+        # Initialize slices of the anatomy.
+        axial_slicer.display(x=int(axial_slider.value))
+        coronal_slicer.display(y=int(coronal_slider.value))
+        sagittal_slicer.display(z=int(sagittal_slider.value))
+
+        return panel
+
     def initialize_scene(self):
         self.ren = window.Renderer()
         self.iren = CustomInteractorStyle()
@@ -634,7 +729,7 @@ class StreamlinesVizu(object):
         centroids_toggle_button.color = (1, 1, 1)
         # centroids_toggle_button.add_callback("LeftButtonPressEvent", animate_button_callback)
         centroids_toggle_button.add_callback("LeftButtonReleaseEvent", centroids_toggle_button_callback)
-        centroids_toggle_button.set_center((20, self.screen_size[1] - 60))
+        centroids_toggle_button.set_center((20, self.screen_size[1] - 20))
         self.ren.add(centroids_toggle_button)
 
         # Add objects to the scene.
@@ -666,7 +761,14 @@ class StreamlinesVizu(object):
 
         self.iren.AddObserver("CharEvent", select_biggest_cluster_onchar_callback)
 
-        # self.ren.background((1, 0.5, 0))
+        # Add anatomy, if there is one.
+        if self.anat is not None:
+            self.anat_axial_slicer = actor.slicer(self.anat.get_data(), affine=self.anat.affine)
+            self.anat_coronal_slicer = actor.slicer(self.anat.get_data(), affine=self.anat.affine)
+            self.anat_sagittal_slicer = actor.slicer(self.anat.get_data(), affine=self.anat.affine)
+            self.ren.add(self.anat_axial_slicer, self.anat_coronal_slicer, self.anat_sagittal_slicer)
+            self.anatomy_panel = self._make_anatomy_panel(self.anat_axial_slicer, self.anat_coronal_slicer, self.anat_sagittal_slicer)
+            self.ren.add(self.anatomy_panel)
 
     def run(self):
         self.show_m.start()
@@ -687,7 +789,11 @@ def main():
         tfile = nib.streamlines.load(f)
         tractogram += tfile.tractogram
 
-    vizu = StreamlinesVizu(tractogram, prefix=prefix)
+    anat = None
+    if args.anat is not None:
+        anat = nib.load(args.anat)
+
+    vizu = StreamlinesVizu(tractogram, anat=anat, prefix=prefix)
     vizu.initialize_scene()
     vizu.run()
 

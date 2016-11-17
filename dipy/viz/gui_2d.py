@@ -825,6 +825,12 @@ class LineSlider2D(UI):
         position_x = self.left_x_position + ratio*self.length
         self.set_position((position_x, None))
 
+    def format_text(self):
+        if callable(self.text_template):
+            return self.text_template(self)
+
+        return self.text_template.format(ratio=self.ratio, value=self.value)
+
     def update(self):
         """ Updates the slider. """
 
@@ -841,7 +847,7 @@ class LineSlider2D(UI):
         self.slider_disk.SetPosition(self.current_state, self.center[1])
 
         # Update text actor.
-        text = self.text_template.format(ratio=self.ratio, value=self.value)
+        text = self.format_text()
         self.text.set_message(text=text)
         offset_x = 8 * len(text) / 2.
         offset_y = 30

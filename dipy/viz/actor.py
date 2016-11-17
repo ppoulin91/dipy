@@ -340,7 +340,7 @@ def streamtube(lines, colors=None, opacity=1, linewidth=0.1, tube_sides=9,
     actor.GetProperty().SetSpecular(0.05)
     actor.GetProperty().SetSpecularPower(6)
     actor.GetProperty().SetInterpolationToPhong()
-    actor.GetProperty().BackfaceCullingOn()
+    # actor.GetProperty().BackfaceCullingOn()  # Seem to mess up with the 2D text.
     actor.GetProperty().SetOpacity(opacity)
 
     return actor
