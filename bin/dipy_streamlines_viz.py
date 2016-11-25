@@ -50,6 +50,9 @@ def build_args_parser():
     return p
 
 metric = MDF(ResampleFeature(nb_points=30))
+darkcolors = [(0.1, 0, 0), (0.1, 0.1, 0), (0.1, 0.1, 0.1),
+              (0, 0.1, 0), (0, 0.1, 0.1),
+              (0, 0, 0.1), (0.1, 0, 0.1)]
 
 
 def animate_button_callback(iren, obj, button):
@@ -154,7 +157,7 @@ class Bundle(object):
         self.last_threshold = threshold
 
         self.clusters = qb.cluster(self.streamlines)
-        self.clusters_colors = [color for c, color in zip(self.clusters, distinguishable_colormap(bg=(0, 0, 0)))]
+        self.clusters_colors = [color for c, color in zip(self.clusters, distinguishable_colormap(bg=(0, 0, 0), exclude=darkcolors))]
 
         if threshold < np.inf:
             print("{} clusters with QB threshold of {}mm".format(len(self.clusters), threshold))
@@ -197,6 +200,7 @@ class Bundle(object):
 
         return bundles
 
+
 class StreamlinesVizu(object):
     # def __init__(self, tractogram_filename, savedir="./", screen_size=(1024, 768)):
     def __init__(self, tractogram, anat=None, prefix="", screen_size=(1360, 768)):
@@ -209,8 +213,9 @@ class StreamlinesVizu(object):
         self.cpt = None  # Used for iterating through the clusters.
 
         self.bundles = {}
-        self.bundles["/"] = Bundle(tractogram.streamlines)
         self.root_bundle = "/"
+        self.keys = [self.root_bundle]
+        self.bundles[self.root_bundle] = Bundle(tractogram.streamlines)
         self.selected_bundle = None
         self.last_threshold = None
         self.last_bundles_visibility_state = "dimmed"
@@ -231,7 +236,7 @@ class StreamlinesVizu(object):
             self.show_dim_hide_button.color = (0, 0, 1)
             self.last_bundles_visibility_state = "dimmed"
             visibility = True
-            opacity = 0.1
+            opacity = 0.6
 
         elif state == "hidden":
             self.show_dim_hide_button.color = (1, 0, 0)
@@ -246,33 +251,47 @@ class StreamlinesVizu(object):
         for bundle in bundles:
             if bundle not in exclude:
                 bundle.actor.SetVisibility(visibility)
+                if opacity < 1:
+                    opacity = max(0.1, opacity - 0.1 * np.log10(len(bundle.streamlines)))
                 bundle.actor.GetProperty().SetOpacity(opacity)
+
+    def add_bundle(self, bundle_name, bundle):
+        self.keys.append(bundle_name)
+        self.keys = sorted(self.keys)
+        self.ren.add(bundle)
+        self.bundles[bundle_name] = bundle
+
+    def remove_bundle(self, bundle_name):
+        self.keys.remove(bundle_name)
+        self.keys = sorted(self.keys)
+        self.ren.rm(self.bundles[bundle_name])
+        del self.bundles[bundle_name]
 
     def select_next(self):
         # Sort bundle according to their bundle size.
-        keys = sorted(self.bundles.keys())
-        indices = np.argsort([len(self.bundles[k].streamlines) for k in keys]).tolist()[::-1]
+        indices = np.argsort([len(self.bundles[k].streamlines) for k in self.keys]).tolist()[::-1]
 
         if self.selected_bundle is None:
             cpt = 0
         else:
-            cpt = indices.index(keys.index(self.selected_bundle))
-            cpt = (cpt + 1) % len(keys)
+            cpt = indices.index(self.keys.index(self.selected_bundle))
+            cpt = (cpt + 1) % len(self.keys)
 
-        self.select(keys[indices[cpt]])
+        self.select(self.keys[indices[cpt]])
+        print("({}/{})".format(cpt+1, len(self.keys)))
 
     def select_previous(self):
         # Sort bundle according to their bundle size.
-        keys = sorted(self.bundles.keys())
-        indices = np.argsort([len(self.bundles[k].streamlines) for k in keys]).tolist()[::-1]
+        indices = np.argsort([len(self.bundles[k].streamlines) for k in self.keys]).tolist()[::-1]
 
         if self.selected_bundle is None:
             cpt = 0
         else:
-            cpt = indices.index(keys.index(self.selected_bundle))
-            cpt = (cpt - 1) % len(keys)
+            cpt = indices.index(self.keys.index(self.selected_bundle))
+            cpt = (cpt - 1) % len(self.keys)
 
-        self.select(keys[indices[cpt]])
+        self.select(self.keys[indices[cpt]])
+        print("({}/{})".format(cpt+1, len(self.keys)))
 
     def select(self, bundle_name=None):
         # Unselect first, if possible.
@@ -296,7 +315,8 @@ class StreamlinesVizu(object):
 
         # Set maximum threshold value depending on the selected bundle.
         self.clustering_panel.slider.max_value = bundle.actor.GetLength() / 2.
-        self.clustering_panel.slider.set_ratio(0.5)
+        # self.clustering_panel.slider.set_ratio(0.5)
+        self.clustering_panel.slider.set_value(6)
         self.clustering_panel.slider.update()
         self.clustering_panel.set_visibility(True)
 
@@ -342,9 +362,8 @@ class StreamlinesVizu(object):
             self.inliers.streamlines.extend(bundle.streamlines)
 
             # Remove original bundle.
-            self.ren.rm(bundle)
             self.select_next()
-            del self.bundles[bundle_name]
+            self.remove_bundle(bundle_name)
 
         def like_button_callback(iren, obj, button):
             like_bundle()
@@ -368,9 +387,8 @@ class StreamlinesVizu(object):
             self.outliers.streamlines.extend(bundle.streamlines)
 
             # Remove original bundle.
-            self.ren.rm(bundle)
             self.select_next()
-            del self.bundles[bundle_name]
+            self.remove_bundle(bundle_name)
 
         def dislike_button_callback(iren, obj, button):
             dislike_bundle()
@@ -418,14 +436,12 @@ class StreamlinesVizu(object):
             # Create new actors, one for each new bundle.
             # Sort bundle in decreasing size.
             for i, bundle in enumerate(bundles):
-                name = "{}{}/".format(self.selected_bundle, i)
-                self.bundles[name] = bundle
-                self.ren.add(bundle)
-                self._add_bundle_right_click_callback(bundle, name)
+                bundle_name = "{}{}/".format(self.selected_bundle, i)
+                self.add_bundle(bundle_name, bundle)
+                self._add_bundle_right_click_callback(bundle, bundle_name)
 
             # Remove original bundle.
-            self.ren.rm(self.bundles[self.selected_bundle])
-            del self.bundles[self.selected_bundle]
+            self.remove_bundle(self.selected_bundle)
             self.select(None)
 
             # TODO: apply clustering if needed, close panel, add command to history, re-enable bundles context-menu.
@@ -622,19 +638,19 @@ class StreamlinesVizu(object):
 
             # Remove old clusters
             files = os.listdir(self.savedir)
-            if "inliers.tck" in files:
-                os.remove(self.prefix + "inliers.tck")
+            if "_inliers.tck" in files:
+                os.remove(self.prefix + "_inliers.tck")
 
-            if "outliers.tck" in files:
-                os.remove(self.prefix + "outliers.tck")
+            if "_outliers.tck" in files:
+                os.remove(self.prefix + "_outliers.tck")
 
             for i, f in enumerate(files):
-                if "bundle_{}.tck".format(i) in files:
-                    os.remove(self.prefix + "bundle_{}.tck".format(i))
+                if self.prefix + "_bundle_{}.tck".format(i) in files:
+                    os.remove(self.prefix + "_bundle_{}.tck".format(i))
 
             for i, k in enumerate(sorted(self.bundles.keys())):
                 bundle = self.bundles[k]
-                filename = self.prefix + "bundle_{}.tck".format(i)
+                filename = self.prefix + "_bundle_{}.tck".format(i)
 
                 t = Tractogram(streamlines=bundle.streamlines,
                                affine_to_rasmm=np.eye(4))
@@ -644,13 +660,13 @@ class StreamlinesVizu(object):
 
             # Save inliers, if any.
             if len(self.inliers):
-                filename = self.prefix + "inliers.tck"
+                filename = self.prefix + "_inliers.tck"
                 nib.streamlines.save(self.inliers, filename)
                 print(filename, len(self.inliers))
 
             # Save outliers, if any.
             if len(self.outliers):
-                filename = self.prefix + "outliers.tck"
+                filename = self.prefix + "_outliers.tck"
                 nib.streamlines.save(self.outliers, filename)
                 print(filename, len(self.outliers))
 
@@ -677,8 +693,7 @@ class StreamlinesVizu(object):
             streamlines = nib.streamlines.ArraySequence()
             for k, bundle in self.bundles.items():
                 streamlines.extend(bundle.streamlines)
-                self.ren.rm(bundle)
-                del self.bundles[k]
+                self.remove_bundle(k)
 
             if len(streamlines) == 0:
                 print("No streamlines left to merge.")
@@ -686,11 +701,8 @@ class StreamlinesVizu(object):
                 iren.event.abort()  # Stop propagating the event.
                 return
 
-            # Create new root
-            self.bundles["/"] = Bundle(streamlines)
-
             # Add new root bundle to the scene.
-            self.ren.add(self.bundles[self.root_bundle])
+            self.add_bundle(self.root_bundle, Bundle(streamlines))
             self._add_bundle_right_click_callback(self.bundles[self.root_bundle], self.root_bundle)
             self.select(None)
 

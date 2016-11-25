@@ -818,7 +818,7 @@ class LineSlider2D(UI):
 
     def set_value(self, value):
         value_range = self.max_value - self.min_value
-        ratio = self.value / value_range
+        ratio = value / value_range
         self.set_ratio(ratio)
 
     def set_ratio(self, ratio):
