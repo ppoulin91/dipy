@@ -589,7 +589,7 @@ class QuickBundles(Clustering):
         cluster_map.refdata = streamlines
         return cluster_map
 
-    def find_closest(self, bundles, streamlines, threshold=np.inf):
+    def find_closest(self, bundles, streamlines, threshold=np.inf, ordering=None):
         """ Returns for each streamline the index of its closest bundle.
 
         Given a list of streamlines, the algorithm finds the closest bundle
@@ -607,13 +607,15 @@ class QuickBundles(Clustering):
             considered as part of it. Otherwise the streamline is put into
             a special bundle: the unassigned bundle (see 'Returns' section
             below).
+        ordering : iterable of indices
+            Specifies the order in which data points will be clustered.
 
         Returns
         -------
         indices : list
             This list contains one element for each streamline (in the same
-            order). The element associated to a particular streamline can be
-            either a positive integer or -1.
+            order as defined by the ordering). The element associated to a
+            particular streamline can be either a positive integer or -1.
             If it is an integer, this corresponds to the index of the closest
             bundle.
             If it is -1, it means no bundle close enough was found according
@@ -622,6 +624,7 @@ class QuickBundles(Clustering):
         from dipy.segment.clustering_algorithms import quickbundles_assignment
         cluster_map = quickbundles_assignment(bundles, streamlines,
                                               self.metric, threshold=threshold,
+                                              ordering=ordering,
                                               bvh=self.bvh)
 
         # Unassigned streamlines should have an associated value of -1.
