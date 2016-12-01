@@ -246,7 +246,7 @@ cdef class QuickBundles(object):
 
         return nearest_cluster
 
-    cdef int assignment_step(QuickBundles self, Data2D datum, int datum_id) nogil except -1:
+    cdef int assignment_step(QuickBundles self, Data2D datum, int datum_id, int unassigned_cluster_id=-1) nogil except -1:
         """ Compute the assignment step of the QuickBundles algorithm.
 
         It will assign a datum to its closest cluster according to a given
@@ -260,6 +260,10 @@ cdef class QuickBundles(object):
             The datum to assign.
         datum_id : int
             ID of the datum, usually its index.
+        unassigned_cluster_id : int
+            ID of the cluster to put streamlines that fit nowhere when the
+            maximum number of clusters has been reached.
+            Default: assigns to the closest anyway.
 
         Returns
         -------
@@ -301,8 +305,11 @@ cdef class QuickBundles(object):
         # or if we already have the maximum number of clusters.
         # If the former or the latter is true, assign datum to its nearest cluster
         # otherwise create a new cluster and assign the datum to it.
-        if not (nearest_cluster.dist < self.threshold or self.clusters.c_size() >= self.max_nb_clusters):
-            nearest_cluster.id = self.clusters.c_create_cluster()
+        if nearest_cluster.dist >= self.threshold:
+            if self.clusters.c_size() < self.max_nb_clusters:
+                nearest_cluster.id = self.clusters.c_create_cluster()
+            elif unassigned_cluster_id > -1:
+                nearest_cluster.id = unassigned_cluster_id
 
         self.clusters.c_assign(nearest_cluster.id, datum_id, features_to_add)
         return nearest_cluster.id

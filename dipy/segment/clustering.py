@@ -506,11 +506,46 @@ class QuickBundles(Clustering):
                                    max_nb_clusters=self.max_nb_clusters,
                                    ordering=ordering)
 
+        cluster_map.refdata = streamlines
         return cluster_map
 
-    def assign(self, clusters, streamlines, ordering=None):
+    def find_closest(self, bundles, streamlines, threshold=np.inf):
+        """ Returns for each streamline the index of its closest bundle.
+
+        Given a list of streamlines, the algorithm finds the closest bundle
+        for each of them. If for a given streamline its closest bundle
+        is too far away according to `threshold`, the index will be -1.
+
+        Parameters
+        ----------
+        clusters : `ClusterMapCentroid` object
+            Contains the bundles where the streamlines will be assigned.
+        streamlines : list of 2D arrays
+            Each 2D array represents a sequence of 3D points (points, 3).
+        threshold : float, optional
+            The maximum distance from a bundle for a streamline to be still
+            considered as part of it. Otherwise the streamline is put into
+            a special bundle: the unassigned bundle (see 'Returns' section
+            below).
+
+        Returns
+        -------
+        indices : list
+            This list contains one element for each streamline (in the same
+            order). The element associated to a particular streamline can be
+            either a positive integer or -1.
+            If it is an integer, this corresponds to the index of the closest
+            bundle.
+            If it is -1, it means no bundle close enough was found according
+            to `threshold`.
+        """
         from dipy.segment.clustering_algorithms import quickbundles_assignment
-        new_clusters = quickbundles_assignment(clusters, streamlines, self.metric,
-                                               threshold=self.threshold,
-                                               ordering=ordering)
-        return new_clusters
+        cluster_map = quickbundles_assignment(bundles, streamlines,
+                                              self.metric, threshold=threshold)
+
+        # Unassigned streamlines should have an associated value of -1.
+        indices = -1 * np.ones(len(streamlines), dtype=int)
+        for i, cluster in enumerate(cluster_map[:-1]):
+            indices[cluster.indices] = i
+
+        return indices

@@ -43,7 +43,10 @@ def clusters_centroid2clustermap_centroid(ClustersCentroid clusters_list):
     clusters = ClusterMapCentroid()
     for i in range(clusters_list._nb_clusters):
         centroid = np.asarray(clusters_list.centroids[i].features)
-        indices = np.asarray(<int[:clusters_list.clusters_size[i]]> clusters_list.clusters_indices[i]).tolist()
+        indices = np.array([], dtype=np.int32)
+        if clusters_list.clusters_size[i] > 0:
+            indices = np.asarray(<int[:clusters_list.clusters_size[i]]> clusters_list.clusters_indices[i]).tolist()
+
         clusters.add_cluster(ClusterCentroid(id=i, centroid=centroid, indices=indices))
 
     return clusters
@@ -112,9 +115,7 @@ def quickbundles(streamlines, Metric metric, double threshold, long max_nb_clust
         # of after all streamlines have been assigned like k-means algorithm.
         qb.update_step(cluster_id)
 
-    clusters = clusters_centroid2clustermap_centroid(qb.clusters)
-    clusters.refdata = streamlines
-    return clusters
+    return clusters_centroid2clustermap_centroid(qb.clusters)
 
 
 def quickbundles_assignment(clusters, streamlines, Metric metric, double threshold, ordering=None):
@@ -166,14 +167,15 @@ def quickbundles_assignment(clusters, streamlines, Metric metric, double thresho
             for d in range(features_shape[1]):
                 qb.clusters.centroids[i].features[n][d] = cluster.centroid[n, d]
 
+    # Create special cluster where to put unassigned streamlines
+    unassigned_cluster_id = qb.clusters.c_create_cluster()
+
     for idx in ordering:
         streamline = streamlines[idx]
         if not streamline.flags.writeable or streamline.dtype != DTYPE:
             streamline = streamline.astype(DTYPE)
 
         # We do assignation only, no centroid will be updated.
-        cluster_id = qb.assignment_step(streamline, idx)
+        cluster_id = qb.assignment_step(streamline, idx, unassigned_cluster_id)
 
-    new_clusters = clusters_centroid2clustermap_centroid(qb.clusters)
-    new_clusters.refdata = streamlines
-    return new_clusters
+    return clusters_centroid2clustermap_centroid(qb.clusters)

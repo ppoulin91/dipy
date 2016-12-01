@@ -163,12 +163,15 @@ def test_quickbundles_assignment_2D():
     clusters = quickbundles(data, metric, threshold)
     assert_equal(len(clusters), len(clusters_truth))
 
-    # Test that adding data, even if really far away, won't create new clusters but
-    # rather assign the data to their closest cluster.
-    new_clusters = quickbundles_assignment(clusters, far_away_data, metric, threshold)
+    # Test that data assignement won't create new clusters except for the
+    # one containing all unassigned streamlines. The unassigned cluster
+    # should be empty since threshold is infinity.
+    new_clusters = quickbundles_assignment(clusters, far_away_data, metric,
+                                           threshold=np.inf)
 
-    # No cluster should have been created (assignments only).
-    assert_equal(len(new_clusters), len(clusters))
+    # Only one cluster should have been created for the unassigned points.
+    assert_equal(len(new_clusters), len(clusters) + 1)
+    assert_equal(len(new_clusters[-1]), 0)
 
     # Check if new clusters are the same as 'clusters_truth'
     for cluster in new_clusters:
@@ -177,13 +180,25 @@ def test_quickbundles_assignment_2D():
             if cluster_truth[0] in cluster.indices:
                 assert_equal(sorted(cluster.indices), sorted(cluster_truth))
 
+    # The unassigned cluster should contain every point except (0,0) since
+    # it hasn't moved.
+    new_clusters = quickbundles_assignment(clusters, far_away_data, metric,
+                                           threshold)
+
+    # Only one cluster should have been created for the unassigned points.
+    assert_equal(len(new_clusters), len(clusters) + 1)
+    assert_equal(sorted(new_clusters[-1].indices),
+                 sorted(list(itertools.chain(*clusters_truth[1:]))))
+    assert_equal(new_clusters[0].indices, clusters_truth[0])
+
     # Test assigning the data used for the initial clustering but with a different ordering.
     ordering = np.arange(len(data))
     rng.shuffle(ordering)
     new_clusters = quickbundles_assignment(clusters, data, metric, threshold, ordering)
 
-    # No cluster should have been created (assignments only).
-    assert_equal(len(new_clusters), len(clusters))
+    # Only one cluster should have been created for the unassigned points.
+    assert_equal(len(new_clusters), len(clusters) + 1)
+    assert_equal(len(new_clusters[-1]), 0)
 
     # Check if new clusters are the same as 'clusters_truth'
     for cluster in new_clusters:
@@ -223,18 +238,22 @@ def test_quickbundles_assignment_streamlines():
     qb = QuickBundles(threshold=2*threshold)
 
     clusters = qb.cluster(rdata)
-    new_clusters = qb.assign(clusters, rdata)
+    closest = qb.find_closest(clusters, rdata)
 
-    # `refdata` should be the same as the `clusters` one.
-    assert_equal(new_clusters.refdata, clusters.refdata)
-    assert_equal(new_clusters.refdata, rdata)
+    assert_equal(len(closest), len(rdata))
 
     # Because we assign the same streamlines that the one used for the initial clusters.
     clusters_truth = [[0, 1], [2, 4], [3]]
+    expected = [0, 0, 1, 2, 1]
+    assert_array_equal(closest, expected)
 
-    # Set `refdata` to return indices instead of actual data points.
-    new_clusters.refdata = None
-    assert_array_equal(list(itertools.chain(*new_clusters)), list(itertools.chain(*clusters_truth)))
+    # Test assignement with a big threshold but not infinity.
+    closest = qb.find_closest(clusters, rdata, threshold=10*threshold)
+    assert_array_equal(closest, expected)
+
+    # Test assignement with a small threshold.
+    closest = qb.find_closest(clusters, rdata, threshold=0)
+    assert_array_equal(closest, [-1]*len(rdata))
 
 
 def test_quickbundles_with_not_order_invariant_metric():
@@ -250,26 +269,14 @@ def test_quickbundles_with_not_order_invariant_metric():
 
 
 def test_quickbundles_memory_leaks():
-    rng = np.random.RandomState(1234)
-    NB_STREAMLINES = 100000
-    data = [rng.randn(rng.randint(10, 100), 3) for _ in range(NB_STREAMLINES)]
-
-    qb = QuickBundles(threshold=2)
+    qb = QuickBundles(threshold=2*threshold)
 
     type_name_pattern = "memoryview"
     initial_types_refcount = get_type_refcount(type_name_pattern)
-    list_refcount_before = get_type_refcount("list")["list"]
 
-    clusters = qb.cluster(data)
-
-    list_refcount_after = get_type_refcount("list")["list"]
+    qb.cluster(data)
     # At this point, all memoryviews created during clustering should be freed.
     assert_equal(get_type_refcount(type_name_pattern), initial_types_refcount)
-    del clusters
-
-    # Calling `qb.cluster` should increase the refcount of `list` by one
-    # since we kept the returned value (a ClusterMap contains a list of the centroids).
-    assert_equal(list_refcount_after, list_refcount_before+1)
 
 
 if __name__ == '__main__':
