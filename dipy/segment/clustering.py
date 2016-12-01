@@ -632,6 +632,8 @@ class QuickBundles(Clustering):
         for i, cluster in enumerate(cluster_map[:-1]):
             indices[cluster.indices] = i
 
+        return indices
+
 
 class QuickBundlesX(Clustering):
     r""" Clusters streamlines using QuickBundlesX.
