@@ -1,7 +1,5 @@
 from __future__ import print_function
 
-import types
-
 import numpy as np
 from numpy.linalg import norm
 import numpy.testing as npt
@@ -11,6 +9,7 @@ from nose.tools import assert_true, assert_equal, assert_almost_equal
 from numpy.testing import (assert_array_equal, assert_array_almost_equal,
                            assert_raises, run_module_suite)
 
+from dipy.tracking import Streamlines
 import dipy.tracking.utils as ut
 from dipy.tracking.streamline import (set_number_of_points,
                                       length as ds_length,
@@ -232,6 +231,10 @@ def test_set_number_of_points():
         assert_array_almost_equal(modified_streamlines_cython[i],
                                   modified_streamline_python, 5)
 
+    # ArraySequence
+    modified_streamlines_as_seq_cython = set_number_of_points(Streamlines(streamlines), nb_points)
+    assert_array_almost_equal(modified_streamlines_as_seq_cython, modified_streamlines_cython)
+
     modified_streamlines_cython = set_number_of_points(
         streamlines_64bit, nb_points)
 
@@ -239,6 +242,10 @@ def test_set_number_of_points():
         modified_streamline_python = set_number_of_points_python(s, nb_points)
         assert_array_almost_equal(modified_streamlines_cython[i],
                                   modified_streamline_python)
+
+    # ArraySequence
+    modified_streamlines_as_seq_cython = set_number_of_points(Streamlines(streamlines_64bit), nb_points)
+    assert_array_almost_equal(modified_streamlines_as_seq_cython, modified_streamlines_cython)
 
     # Test streamlines with mixed dtype
     streamlines_mixed_dtype = [streamline,
@@ -298,10 +305,6 @@ def test_set_number_of_points():
     assert_equal(len(set_number_of_points(streamlines_readonly, nb_points=42)),
                  len(streamlines_readonly))
 
-    # Test if nb_points is less than 2
-    assert_raises(ValueError, set_number_of_points, [np.ones((10, 3)),
-                  np.ones((10, 3))], nb_points=1)
-
 
 def test_set_number_of_points_memory_leaks():
     # Test some dtypes
@@ -309,18 +312,16 @@ def test_set_number_of_points_memory_leaks():
     for dtype in dtypes:
         rng = np.random.RandomState(1234)
         NB_STREAMLINES = 10000
-        streamlines = [rng.randn(rng.randint(10, 100), 3).astype(dtype)
-                       for _ in range(NB_STREAMLINES)]
+        streamlines = [rng.randn(rng.randint(10, 100), 3).astype(dtype) for _ in range(NB_STREAMLINES)]
 
         list_refcount_before = get_type_refcount()["list"]
 
         rstreamlines = set_number_of_points(streamlines, nb_points=2)
         list_refcount_after = get_type_refcount()["list"]
-        del rstreamlines  # Delete `rstreamlines` because it holds a reference
-        #                   to `list`.
+        del rstreamlines  # Delete `rstreamlines` because it holds a reference to `list`.
 
-        # Calling `set_number_of_points` should increase the refcount of `list`
-        #  by one since we kept the returned value.
+        # Calling `set_number_of_points` should increase the refcount of `list` by one
+        # since we kept the returned value.
         assert_equal(list_refcount_after, list_refcount_before+1)
 
     # Test mixed dtypes
@@ -336,8 +337,8 @@ def test_set_number_of_points_memory_leaks():
     rstreamlines = set_number_of_points(streamlines, nb_points=2)
     list_refcount_after = get_type_refcount()["list"]
 
-    # Calling `set_number_of_points` should increase the refcount of `list`
-    #  by one since we kept the returned value.
+    # Calling `set_number_of_points` should increase the refcount of `list` by one
+    # since we kept the returned value.
     assert_equal(list_refcount_after, list_refcount_before+1)
 
 
@@ -347,9 +348,17 @@ def test_length():
     length_streamline_python = length_python(streamline)
     assert_almost_equal(length_streamline_cython, length_streamline_python)
 
+    # ArraySequence
+    length_streamline_as_seq_cython = ds_length(Streamlines([streamline]))
+    assert_almost_equal(length_streamline_as_seq_cython, length_streamline_cython)
+
     length_streamline_cython = ds_length(streamline_64bit)
     length_streamline_python = length_python(streamline_64bit)
     assert_almost_equal(length_streamline_cython, length_streamline_python)
+
+    # ArraySequence
+    length_streamline_as_seq_cython = ds_length(Streamlines([streamline_64bit]))
+    assert_almost_equal(length_streamline_as_seq_cython, length_streamline_cython)
 
     # Test computing length of multiple streamlines of different nb_points
     length_streamlines_cython = ds_length(streamlines)
@@ -359,12 +368,28 @@ def test_length():
         assert_array_almost_equal(length_streamlines_cython[i],
                                   length_streamline_python)
 
+    # ArraySequence
+    length_streamlines_as_seq_cython = ds_length(Streamlines(streamlines))
+    assert_array_almost_equal(length_streamlines_as_seq_cython, length_streamlines_cython)
+
     length_streamlines_cython = ds_length(streamlines_64bit)
 
     for i, s in enumerate(streamlines_64bit):
         length_streamline_python = length_python(s)
         assert_array_almost_equal(length_streamlines_cython[i],
                                   length_streamline_python)
+
+    # ArraySequence
+    length_streamlines_as_seq_cython = ds_length(Streamlines(streamlines_64bit))
+    assert_array_almost_equal(length_streamlines_as_seq_cython, length_streamlines_cython)
+
+    # Test on a sliced ArraySequence
+    length_streamlines_cython = ds_length(streamlines_64bit[::2])
+    length_streamlines_as_seq_cython = ds_length(Streamlines(streamlines_64bit[::2]))
+    assert_array_almost_equal(length_streamlines_as_seq_cython, length_streamlines_cython)
+    length_streamlines_cython = ds_length(streamlines_64bit[::-1])
+    length_streamlines_as_seq_cython = ds_length(Streamlines(streamlines_64bit[::-1]))
+    assert_array_almost_equal(length_streamlines_as_seq_cython, length_streamlines_cython)
 
     # Test streamlines having mixed dtype
     streamlines_mixed_dtype = [streamline,
@@ -423,8 +448,7 @@ def test_length_memory_leaks():
     for dtype in dtypes:
         rng = np.random.RandomState(1234)
         NB_STREAMLINES = 10000
-        streamlines = [rng.randn(rng.randint(10, 100), 3).astype(dtype)
-                       for _ in range(NB_STREAMLINES)]
+        streamlines = [rng.randn(rng.randint(10, 100), 3).astype(dtype) for _ in range(NB_STREAMLINES)]
 
         list_refcount_before = get_type_refcount()["list"]
 
@@ -644,18 +668,16 @@ def test_compress_streamlines_memory_leaks():
     for dtype in dtypes:
         rng = np.random.RandomState(1234)
         NB_STREAMLINES = 10000
-        streamlines = [rng.randn(rng.randint(10, 100), 3).astype(dtype)
-                       for _ in range(NB_STREAMLINES)]
+        streamlines = [rng.randn(rng.randint(10, 100), 3).astype(dtype) for _ in range(NB_STREAMLINES)]
 
         list_refcount_before = get_type_refcount()["list"]
 
         cstreamlines = compress_streamlines(streamlines)
         list_refcount_after = get_type_refcount()["list"]
-        del cstreamlines  # Delete `cstreamlines` because it holds a reference
-        #                   to `list`.
+        del cstreamlines  # Delete `cstreamlines` because it holds a reference to `list`.
 
-        # Calling `compress_streamlines` should increase the refcount of `list`
-        # by one since we kept the returned value.
+        # Calling `compress_streamlines` should increase the refcount of `list` by one
+        # since we kept the returned value.
         assert_equal(list_refcount_after, list_refcount_before+1)
 
     # Test mixed dtypes
@@ -671,25 +693,9 @@ def test_compress_streamlines_memory_leaks():
     cstreamlines = compress_streamlines(streamlines)
     list_refcount_after = get_type_refcount()["list"]
 
-    # Calling `compress_streamlines` should increase the refcount of `list` by
-    # one since we kept the returned value.
+    # Calling `compress_streamlines` should increase the refcount of `list` by one
+    # since we kept the returned value.
     assert_equal(list_refcount_after, list_refcount_before+1)
-
-def generate_sl(streamlines):
-    """
-    Helper function that takes a sequence and returns a generator
-
-    Parameters
-    ----------
-    streamlines : sequence
-        Usually, this would be a list of 2D arrays, representing streamlines
-
-    Returns
-    -------
-    generator
-    """
-    for sl in streamlines:
-        yield sl
 
 
 def test_select_by_rois():
@@ -777,6 +783,10 @@ def test_select_by_rois():
                                              streamlines[1]])
 
     # Test with generator input:
+    def generate_sl(streamlines):
+        for sl in streamlines:
+            yield sl
+
     selection = select_by_rois(generate_sl(streamlines), [mask1], [True],
                                tol=1.0)
     npt.assert_array_equal(list(selection), [streamlines[0],
@@ -805,103 +815,25 @@ def test_orient_by_rois():
     # Transform the streamlines:
     x_streamlines = [sl + affine[:3, 3] for sl in streamlines]
 
-    # After reorientation, this should be the answer:
-    flipped_sl = [streamlines[0], streamlines[1][::-1]]
-    new_streamlines = orient_by_rois(streamlines,
-                                     mask1_vol,
-                                     mask2_vol,
-                                     in_place=False,
-                                     affine=None,
-                                     as_generator=False)
-    npt.assert_equal(new_streamlines, flipped_sl)
-    npt.assert_(new_streamlines is not streamlines)
+    for copy in [True, False]:
+        for sl, affine in zip([streamlines, x_streamlines], [None, affine]):
+            for mask1, mask2 in \
+              zip([mask1_vol, mask1_coords], [mask2_vol, mask2_coords]):
+                new_streamlines = orient_by_rois(sl, mask1, mask2,
+                                                 affine=affine, copy=copy)
+                if copy:
+                    flipped_sl = [sl[0], sl[1][::-1]]
+                else:
+                    flipped_sl = [np.array([[0, 0., 0],
+                                            [1, 0., 0.],
+                                            [2, 0., 0.]]),
+                                  np.array([[0, 0., 0.],
+                                            [1, 0., 0],
+                                            [2, 0,  0.]])]
+                    if affine is not None:
+                        flipped_sl = [s + affine[:3, 3] for s in flipped_sl]
 
-    # Test with affine:
-    x_flipped_sl = [s + affine[:3, 3] for s in flipped_sl]
-    new_streamlines = orient_by_rois(x_streamlines,
-                                     mask1_vol,
-                                     mask2_vol,
-                                     in_place=False,
-                                     affine=affine,
-                                     as_generator=False)
-    npt.assert_equal(new_streamlines, x_flipped_sl)
-    npt.assert_(new_streamlines is not x_streamlines)
-
-    # Test providing coord ROIs instead of vol ROIs:
-    new_streamlines = orient_by_rois(x_streamlines,
-                                     mask1_coords,
-                                     mask2_coords,
-                                     in_place=False,
-                                     affine=affine,
-                                     as_generator=False)
-    npt.assert_equal(new_streamlines, x_flipped_sl)
-
-    # Test with as_generator set to True
-    new_streamlines = orient_by_rois(streamlines,
-                                     mask1_vol,
-                                     mask2_vol,
-                                     in_place=False,
-                                     affine=None,
-                                     as_generator=True)
-
-    npt.assert_(isinstance(new_streamlines, types.GeneratorType))
-    ll = list(new_streamlines)
-    npt.assert_equal(ll, flipped_sl)
-
-    # Test with as_generator set to True and with the affine
-    new_streamlines = orient_by_rois(x_streamlines,
-                                     mask1_vol,
-                                     mask2_vol,
-                                     in_place=False,
-                                     affine=affine,
-                                     as_generator=True)
-
-    npt.assert_(isinstance(new_streamlines, types.GeneratorType))
-    ll = list(new_streamlines)
-    npt.assert_equal(ll, x_flipped_sl)
-
-    # Test with generator input:
-    new_streamlines = orient_by_rois(generate_sl(streamlines),
-                                     mask1_vol,
-                                     mask2_vol,
-                                     in_place=False,
-                                     affine=None,
-                                     as_generator=True)
-
-    npt.assert_(isinstance(new_streamlines, types.GeneratorType))
-    ll = list(new_streamlines)
-    npt.assert_equal(ll, flipped_sl)
-
-    # Generator output cannot take a True `in_place` kwarg:
-    npt.assert_raises(ValueError, orient_by_rois, *[generate_sl(streamlines),
-                                                    mask1_vol,
-                                                    mask2_vol],
-                                                   **dict(in_place=True,
-                                                          affine=None,
-                                                          as_generator=True))
-
-    # But you can input a generator and get a non-generator as output:
-    new_streamlines = orient_by_rois(generate_sl(streamlines),
-                                     mask1_vol,
-                                     mask2_vol,
-                                     in_place=False,
-                                     affine=None,
-                                     as_generator=False)
-
-    npt.assert_(not isinstance(new_streamlines, types.GeneratorType))
-    npt.assert_equal(new_streamlines, flipped_sl)
-
-    # Modify in-place:
-    new_streamlines = orient_by_rois(streamlines,
-                                     mask1_vol,
-                                     mask2_vol,
-                                     in_place=True,
-                                     affine=None,
-                                     as_generator=False)
-
-    npt.assert_equal(new_streamlines, flipped_sl)
-    # The two objects are one and the same:
-    npt.assert_(new_streamlines is streamlines)
+                npt.assert_equal(new_streamlines, flipped_sl)
 
 
 def test_values_from_volume():
@@ -959,6 +891,7 @@ def test_values_from_volume():
             vv = values_from_volume(data, np.array(x_sl1), affine=affine)
             npt.assert_almost_equal(vv, ans1, decimal=decimal)
             npt.assert_equal(np.array(x_sl1), np.array(l_sl2))
+
 
             # Test for lists of streamlines with different numbers of nodes:
             sl2 = [sl1[0][:-1], sl1[1]]
