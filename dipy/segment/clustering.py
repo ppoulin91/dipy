@@ -628,7 +628,8 @@ class QuickBundles(Clustering):
                                               bvh=self.bvh)
 
         # Unassigned streamlines should have an associated value of -1.
-        indices = -1 * np.ones(len(streamlines), dtype=int)
+        n_indices = len(streamlines) if ordering is None else len(ordering)
+        indices = -1 * np.ones(n_indices, dtype=int)
         for i, cluster in enumerate(cluster_map[:-1]):
             indices[cluster.indices] = i
 
