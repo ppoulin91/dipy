@@ -219,7 +219,7 @@ def quickbundles_online(features_shape, Metric metric, double threshold,
     return _step
 
 
-def quickbundles_assignment(clusters, streamlines, Metric metric, double threshold, ordering=None):
+def quickbundles_assignment(clusters, streamlines, Metric metric, double threshold, ordering=None, bvh=False):
     """ Assigns streamlines to nearest clusters.
 
     Note that the clusters won't be updated.
@@ -237,6 +237,8 @@ def quickbundles_assignment(clusters, streamlines, Metric metric, double thresho
         considered as part of it.
     ordering : iterable of indices, optional
         Iterate through `data` using the given ordering.
+    bvh : bool
+        Boundary volume hierarchy
 
     Returns
     -------
@@ -258,7 +260,7 @@ def quickbundles_assignment(clusters, streamlines, Metric metric, double thresho
 
     max_nb_clusters = len(clusters)  # We don't want to create new clusters.
     features_shape = shape2tuple(metric.feature.c_infer_shape(streamlines[first_idx].astype(DTYPE)))
-    cdef QuickBundles qb = QuickBundles(features_shape, metric, threshold, max_nb_clusters)
+    cdef QuickBundles qb = QuickBundles(features_shape, metric, threshold, max_nb_clusters, bvh)
     cdef int idx, i, n, d
 
     # Initialize centroids using the ones from `clusters`.

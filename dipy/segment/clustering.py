@@ -550,7 +550,7 @@ class QuickBundles(Clustering):
     """
 
     def __init__(self, threshold, metric="MDF_12points",
-                 max_nb_clusters=np.iinfo('i4').max):
+                 max_nb_clusters=np.iinfo('i4').max, bvh=False):
         self.threshold = threshold
         self.max_nb_clusters = max_nb_clusters
         self.bvh = bvh
@@ -584,7 +584,7 @@ class QuickBundles(Clustering):
         cluster_map = quickbundles(streamlines, self.metric,
                                    threshold=self.threshold,
                                    max_nb_clusters=self.max_nb_clusters,
-                                   ordering=ordering)
+                                   ordering=ordering, bvh=self.bvh)
 
         cluster_map.refdata = streamlines
         return cluster_map
@@ -621,7 +621,8 @@ class QuickBundles(Clustering):
         """
         from dipy.segment.clustering_algorithms import quickbundles_assignment
         cluster_map = quickbundles_assignment(bundles, streamlines,
-                                              self.metric, threshold=threshold)
+                                              self.metric, threshold=threshold,
+                                              bvh=self.bvh)
 
         # Unassigned streamlines should have an associated value of -1.
         indices = -1 * np.ones(len(streamlines), dtype=int)
