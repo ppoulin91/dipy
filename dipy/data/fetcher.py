@@ -376,10 +376,10 @@ fetch_scil_b0 = _make_fetcher(
 
 fetch_viz_icons = _make_fetcher("fetch_viz_icons",
                                 pjoin(dipy_home, "icons"),
-                                'https://dl.dropboxusercontent.com/u/2481924/',
+                                'https://dl.dropboxusercontent.com/u/24119444/',
                                 ['icomoon.tar.gz'],
                                 ['icomoon.tar.gz'],
-                                ['94a07cba06b4136b6687396426f1e380'],
+                                ['457109639e0678341278c234bc09ece0'],
                                 data_size="12KB",
                                 doc="Download icons for dipy.viz",
                                 unzip=True)

@@ -82,10 +82,14 @@ class Renderer(vtkRenderer):
             else:
                 self.AddActor(actor)
 
-    def rm(self, actor):
+    def rm(self, *actors):
         """ Remove a specific actor
         """
-        self.RemoveActor(actor)
+        for actor in actors:
+            if hasattr(actor, 'remove_from_renderer'):
+                actor.remove_from_renderer(self)
+            else:
+                self.RemoveActor(actor)
 
     def clear(self):
         """ Remove all actors from the renderer

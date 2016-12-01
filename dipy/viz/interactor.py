@@ -30,6 +30,9 @@ class Event(object):
         self.name = event_name
         self.position = np.asarray(interactor.GetEventPosition())
         self.key = interactor.GetKeySym()
+        self.alt_key = bool(interactor.GetAltKey())
+        self.shift_key = bool(interactor.GetShiftKey())
+        self.ctrl_key = bool(interactor.GetControlKey())
         self._abort_flag = False  # Reset abort flag
 
     def abort(self):
@@ -69,6 +72,8 @@ class CustomInteractorStyle(vtkInteractorStyleUser):
         self.middle_button_down = False
         self.active_props = set()
 
+        self._callbacks = []
+
         self.selected_props = {"left_button": set(),
                                "right_button": set(),
                                "middle_button": set()}
@@ -103,6 +108,7 @@ class CustomInteractorStyle(vtkInteractorStyleUser):
                 return
 
     def on_left_button_down(self, obj, evt):
+        self.event.update(evt, self.GetInteractor())
         self.left_button_down = True
         prop = self.get_prop_at_event_position()
         if prop is not None:
@@ -113,12 +119,14 @@ class CustomInteractorStyle(vtkInteractorStyleUser):
             self.default_interactor.OnLeftButtonDown()
 
     def on_left_button_up(self, obj, evt):
+        self.event.update(evt, self.GetInteractor())
         self.left_button_down = False
         self.propagate_event(evt, *self.selected_props["left_button"])
         self.selected_props["left_button"].clear()
         self.default_interactor.OnLeftButtonUp()
 
     def on_right_button_down(self, obj, evt):
+        self.event.update(evt, self.GetInteractor())
         self.right_button_down = True
         prop = self.get_prop_at_event_position()
         if prop is not None:
@@ -129,12 +137,14 @@ class CustomInteractorStyle(vtkInteractorStyleUser):
             self.default_interactor.OnRightButtonDown()
 
     def on_right_button_up(self, obj, evt):
+        self.event.update(evt, self.GetInteractor())
         self.right_button_down = False
         self.propagate_event(evt, *self.selected_props["right_button"])
         self.selected_props["right_button"].clear()
         self.default_interactor.OnRightButtonUp()
 
     def on_middle_button_down(self, obj, evt):
+        self.event.update(evt, self.GetInteractor())
         self.middle_button_down = True
         prop = self.get_prop_at_event_position()
         if prop is not None:
@@ -145,12 +155,14 @@ class CustomInteractorStyle(vtkInteractorStyleUser):
             self.default_interactor.OnMiddleButtonDown()
 
     def on_middle_button_up(self, obj, evt):
+        self.event.update(evt, self.GetInteractor())
         self.middle_button_down = False
         self.propagate_event(evt, *self.selected_props["middle_button"])
         self.selected_props["middle_button"].clear()
         self.default_interactor.OnMiddleButtonUp()
 
     def on_mouse_move(self, obj, evt):
+        self.event.update(evt, self.GetInteractor())
         # Only propagate events to active or selected props.
         self.propagate_event(evt, *(self.active_props |
                                     self.selected_props["left_button"] |
@@ -159,6 +171,7 @@ class CustomInteractorStyle(vtkInteractorStyleUser):
         self.default_interactor.OnMouseMove()
 
     def on_mouse_wheel_forward(self, obj, evt):
+        self.event.update(evt, self.GetInteractor())
         # First, propagate mouse wheel event to underneath prop.
         prop = self.get_prop_at_event_position()
         if prop is not None:
@@ -173,6 +186,7 @@ class CustomInteractorStyle(vtkInteractorStyleUser):
             self.default_interactor.OnMouseWheelForward()
 
     def on_mouse_wheel_backward(self, obj, evt):
+        self.event.update(evt, self.GetInteractor())
         # First, propagate mouse wheel event to underneath prop.
         prop = self.get_prop_at_event_position()
         if prop is not None:
@@ -187,12 +201,15 @@ class CustomInteractorStyle(vtkInteractorStyleUser):
             self.default_interactor.OnMouseWheelBackward()
 
     def on_char(self, obj, evt):
+        self.event.update(evt, self.GetInteractor())
         self.propagate_event(evt, *self.active_props)
 
     def on_key_press(self, obj, evt):
+        self.event.update(evt, self.GetInteractor())
         self.propagate_event(evt, *self.active_props)
 
     def on_key_release(self, obj, evt):
+        self.event.update(evt, self.GetInteractor())
         self.propagate_event(evt, *self.active_props)
 
     def SetInteractor(self, interactor):
@@ -268,7 +285,7 @@ class CustomInteractorStyle(vtkInteractorStyleUser):
         """ Causes the renderer to refresh. """
         self.GetInteractor().GetRenderWindow().Render()
 
-    def add_callback(self, prop, event_type, callback, priority=0):
+    def add_callback(self, prop, event_type, callback, priority=0, args=[]):
         """ Adds a callback associated to a specific event for a VTK prop.
 
         Parameters
@@ -281,9 +298,12 @@ class CustomInteractorStyle(vtkInteractorStyleUser):
         cmd_id = [None]  # Placeholder accessible in the _callback closure.
 
         def _callback(obj, event_name):
-            # Update event information.
-            self.event.update(event_name, self.GetInteractor())
-            callback(self, prop)
+            callback(self, prop, *args)
+
+        # Force keeping a reference to the _callback function to prevent
+        # the garbage collector to dispose it. This is needed since
+        # VTK (at least before v6.3.0) doesn't seem to increase the refcount.
+        self._callbacks.append(_callback)
 
         # Fill the placeholder with the command ID returned by VTK.
         cmd_id[0] = prop.AddObserver(event_type, _callback, priority)
