@@ -57,6 +57,8 @@ def build_args_parser():
                    help="Threshold used when the cluserting panel opens. "
                         "Default: high threshold producing only one cluster")
 
+    p.add_argument("-v", "--verbose", action="store_true", help="Verbose mode.")
+
     # p.add_argument("--ref",
     #                help="Reference frame to display the streamlines in (.nii).")
 
@@ -227,11 +229,12 @@ class Bundle(object):
 
 class StreamlinesVizu(object):
     # def __init__(self, tractogram_filename, savedir="./", screen_size=(1024, 768)):
-    def __init__(self, tractogram, anat=None, prefix="", screen_size=(1360, 768), default_clustering_threshold=None):
+    def __init__(self, tractogram, anat=None, prefix="", screen_size=(1360, 768), default_clustering_threshold=None, verbose=False):
         self.prefix = prefix
         self.savedir = os.path.dirname(pjoin(".", self.prefix))
         self.screen_size = screen_size
         self.default_clustering_threshold = default_clustering_threshold
+        self.verbose = verbose
 
         self.inliers = Tractogram(affine_to_rasmm=np.eye(4))
         self.outliers = Tractogram(affine_to_rasmm=np.eye(4))
@@ -782,6 +785,10 @@ class StreamlinesVizu(object):
 
         # Add shortcut keys.
         def select_biggest_cluster_onchar_callback(iren, evt_name):
+            if self.verbose:
+                print("Pressed {} (shift={}), (ctrl={}), (alt={})".format(
+                    iren.event.key, iren.event.ctrl_key, iren.event.shift_key, iren.event.alt_key))
+
             if iren.event.key.lower() == "escape":
                 self.select(None)
 
@@ -842,7 +849,8 @@ def main():
 
     vizu = StreamlinesVizu(tractogram, anat=anat, prefix=prefix,
                            screen_size=tuple(args.screen_size),
-                           default_clustering_threshold=args.default_clustering_threshold)
+                           default_clustering_threshold=args.default_clustering_threshold,
+                           verbose=args.verbose)
     vizu.initialize_scene()
     vizu.run()
 
