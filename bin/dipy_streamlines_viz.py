@@ -787,7 +787,7 @@ class StreamlinesVizu(object):
         def select_biggest_cluster_onchar_callback(iren, evt_name):
             if self.verbose:
                 print("Pressed {} (shift={}), (ctrl={}), (alt={})".format(
-                    iren.event.key, iren.event.ctrl_key, iren.event.shift_key, iren.event.alt_key))
+                    iren.event.key, iren.event.shift_key, iren.event.ctrl_key, iren.event.alt_key))
 
             if iren.event.key.lower() == "escape":
                 self.select(None)
