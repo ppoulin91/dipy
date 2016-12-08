@@ -170,6 +170,7 @@ class Bundle(object):
     def preview(self, threshold):
         self._cluster(threshold)
         self.update()
+        return len(self.clusters)
 
     def reset(self):
         self._cluster(np.inf)
@@ -451,6 +452,10 @@ class StreamlinesVizu(object):
         center = tuple(np.array(size) / 2.)  # Lower left corner of the screen.
         panel = gui_2d.Panel2D(center=center, size=size, color=(1, 1, 1), align="left")
 
+        # Nb. clusters label
+        label = gui_2d.Text2D("# clusters")
+        panel.add_element(label, (0.01, 0.2))
+
         # "Apply" button
         def apply_button_callback(iren, obj, button):
             # iren: CustomInteractorStyle
@@ -520,8 +525,9 @@ class StreamlinesVizu(object):
 
             threshold = slider.value
             if self.last_threshold != threshold:
-                self.bundles[self.selected_bundle].preview(threshold)
+                nb_bundles = self.bundles[self.selected_bundle].preview(threshold)
                 self.last_threshold = threshold
+                label.set_message("{} clusters".format(nb_bundles))
 
             iren.force_render()
             iren.event.abort()  # Stop propagating the event.
