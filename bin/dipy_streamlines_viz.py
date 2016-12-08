@@ -1,6 +1,7 @@
 #! /usr/bin/env python
 import os
 import numpy as np
+import textwrap
 from os.path import join as pjoin
 
 import nibabel as nib
@@ -20,7 +21,21 @@ from dipy.viz.interactor import CustomInteractorStyle
 
 
 def build_args_parser():
-    description = "Streamlines visualization tools."
+    description = textwrap.dedent("""
+    Streamlines visualization tools.
+
+    Shorcuts
+    --------
+    tab : select next biggest cluster
+    shift+tab : select previous biggest cluster
+    space : hide other clusters (except the one being clustered)
+    c : show centroids (and hide streamlines)
+    C: hide centroids (and show streamlines)
+    a: (accept) send selected streamlines in the inliers bundle
+    r: (reject) send selected streamlines in the outliers bundle
+    * There is no undo.
+    ** Don't forget to save (floppy disk icon)
+    """)
     p = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter,
                                 description=description)
 
@@ -33,6 +48,14 @@ def build_args_parser():
     p.add_argument("--prefix",
                    help="Prefix used for the name of outputted files. Prefix can be a path. "
                         "Default: use the basename of the first tractogram")
+
+    p.add_argument("--screen-size", type=int, nargs=2, default=[1360, 768],
+                   help="Set the screen size in pixel (width, height). "
+                        "Default: %(defualt)s")
+
+    p.add_argument("--default-clustering-threshold", type=float,
+                   help="Threshold used when the cluserting panel opens. "
+                        "Default: high threshold producing only one cluster")
 
     # p.add_argument("--ref",
     #                help="Reference frame to display the streamlines in (.nii).")
@@ -203,10 +226,11 @@ class Bundle(object):
 
 class StreamlinesVizu(object):
     # def __init__(self, tractogram_filename, savedir="./", screen_size=(1024, 768)):
-    def __init__(self, tractogram, anat=None, prefix="", screen_size=(1360, 768)):
+    def __init__(self, tractogram, anat=None, prefix="", screen_size=(1360, 768), default_clustering_threshold=None):
         self.prefix = prefix
         self.savedir = os.path.dirname(pjoin(".", self.prefix))
         self.screen_size = screen_size
+        self.default_clustering_threshold = default_clustering_threshold
 
         self.inliers = Tractogram(affine_to_rasmm=np.eye(4))
         self.outliers = Tractogram(affine_to_rasmm=np.eye(4))
@@ -315,8 +339,10 @@ class StreamlinesVizu(object):
 
         # Set maximum threshold value depending on the selected bundle.
         self.clustering_panel.slider.max_value = bundle.actor.GetLength() / 2.
-        # self.clustering_panel.slider.set_ratio(0.5)
-        self.clustering_panel.slider.set_value(6)
+        if self.default_clustering_threshold is None:
+            self.clustering_panel.slider.set_ratio(1)
+        else:
+            self.clustering_panel.slider.set_value(self.default_clustering_threshold)
         self.clustering_panel.slider.update()
         self.clustering_panel.set_visibility(True)
 
@@ -808,7 +834,9 @@ def main():
     if args.anat is not None:
         anat = nib.load(args.anat)
 
-    vizu = StreamlinesVizu(tractogram, anat=anat, prefix=prefix)
+    vizu = StreamlinesVizu(tractogram, anat=anat, prefix=prefix,
+                           screen_size=tuple(args.screen_size),
+                           default_clustering_threshold=args.default_clustering_threshold)
     vizu.initialize_scene()
     vizu.run()
 
