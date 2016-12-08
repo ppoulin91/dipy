@@ -792,8 +792,8 @@ class StreamlinesVizu(object):
             if iren.event.key.lower() == "escape":
                 self.select(None)
 
-            elif iren.event.key.lower() == "tab" or iren.event.key.lower() == "iso_left_tab":
-                if iren.event.ctrl_key or iren.event.key.lower() == "iso_left_tab":
+            elif "tab" in iren.event.key.lower():
+                if iren.event.shift_key:
                     self.select_previous()
                 else:
                     self.select_next()
