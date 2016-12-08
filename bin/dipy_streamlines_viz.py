@@ -796,10 +796,13 @@ def main():
         prefix, _ = os.path.splitext(os.path.basename(args.tractograms[0]))
 
     # Load all tractograms
-    tractogram = nib.streamlines.Tractogram(affine_to_rasmm=np.eye(4))
+    tractogram = None
     for f in args.tractograms:
         tfile = nib.streamlines.load(f)
-        tractogram += tfile.tractogram
+        if tractogram is None:
+            tractogram = tfile.tractogram
+        else:
+            tractogram += tfile.tractogram
 
     anat = None
     if args.anat is not None:
