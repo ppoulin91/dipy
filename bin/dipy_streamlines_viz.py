@@ -1,6 +1,7 @@
 #! /usr/bin/env python
 import os
 import numpy as np
+import textwrap
 from os.path import join as pjoin
 
 import nibabel as nib
@@ -20,7 +21,21 @@ from dipy.viz.interactor import CustomInteractorStyle
 
 
 def build_args_parser():
-    description = "Streamlines visualization tools."
+    description = textwrap.dedent("""
+    Streamlines visualization tools.
+
+    Shorcuts
+    --------
+    tab : select next biggest cluster
+    shift+tab : select previous biggest cluster
+    space : hide other clusters (except the one being clustered)
+    c : show centroids (and hide streamlines)
+    C: hide centroids (and show streamlines)
+    a: (accept) send selected streamlines in the inliers bundle
+    r: (reject) send selected streamlines in the outliers bundle
+    * There is no undo.
+    ** Don't forget to save (floppy disk icon)
+    """)
     p = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter,
                                 description=description)
 
@@ -33,6 +48,16 @@ def build_args_parser():
     p.add_argument("--prefix",
                    help="Prefix used for the name of outputted files. Prefix can be a path. "
                         "Default: use the basename of the first tractogram")
+
+    p.add_argument("--screen-size", type=int, nargs=2, default=[1360, 768],
+                   help="Set the screen size in pixel (width, height). "
+                        "Default: %(defualt)s")
+
+    p.add_argument("--default-clustering-threshold", type=float,
+                   help="Threshold used when the cluserting panel opens. "
+                        "Default: high threshold producing only one cluster")
+
+    p.add_argument("-v", "--verbose", action="store_true", help="Verbose mode.")
 
     # p.add_argument("--ref",
     #                help="Reference frame to display the streamlines in (.nii).")
@@ -147,6 +172,7 @@ class Bundle(object):
     def preview(self, threshold):
         self._cluster(threshold)
         self.update()
+        return len(self.clusters)
 
     def reset(self):
         self._cluster(np.inf)
@@ -203,10 +229,12 @@ class Bundle(object):
 
 class StreamlinesVizu(object):
     # def __init__(self, tractogram_filename, savedir="./", screen_size=(1024, 768)):
-    def __init__(self, tractogram, anat=None, prefix="", screen_size=(1360, 768)):
+    def __init__(self, tractogram, anat=None, prefix="", screen_size=(1360, 768), default_clustering_threshold=None, verbose=False):
         self.prefix = prefix
         self.savedir = os.path.dirname(pjoin(".", self.prefix))
         self.screen_size = screen_size
+        self.default_clustering_threshold = default_clustering_threshold
+        self.verbose = verbose
 
         self.inliers = Tractogram(affine_to_rasmm=np.eye(4))
         self.outliers = Tractogram(affine_to_rasmm=np.eye(4))
@@ -315,8 +343,10 @@ class StreamlinesVizu(object):
 
         # Set maximum threshold value depending on the selected bundle.
         self.clustering_panel.slider.max_value = bundle.actor.GetLength() / 2.
-        # self.clustering_panel.slider.set_ratio(0.5)
-        self.clustering_panel.slider.set_value(6)
+        if self.default_clustering_threshold is None:
+            self.clustering_panel.slider.set_ratio(1)
+        else:
+            self.clustering_panel.slider.set_value(self.default_clustering_threshold)
         self.clustering_panel.slider.update()
         self.clustering_panel.set_visibility(True)
 
@@ -425,6 +455,10 @@ class StreamlinesVizu(object):
         center = tuple(np.array(size) / 2.)  # Lower left corner of the screen.
         panel = gui_2d.Panel2D(center=center, size=size, color=(1, 1, 1), align="left")
 
+        # Nb. clusters label
+        label = gui_2d.Text2D("# clusters")
+        panel.add_element(label, (0.01, 0.2))
+
         # "Apply" button
         def apply_button_callback(iren, obj, button):
             # iren: CustomInteractorStyle
@@ -494,8 +528,9 @@ class StreamlinesVizu(object):
 
             threshold = slider.value
             if self.last_threshold != threshold:
-                self.bundles[self.selected_bundle].preview(threshold)
+                nb_bundles = self.bundles[self.selected_bundle].preview(threshold)
                 self.last_threshold = threshold
+                label.set_message("{} clusters".format(nb_bundles))
 
             iren.force_render()
             iren.event.abort()  # Stop propagating the event.
@@ -750,11 +785,15 @@ class StreamlinesVizu(object):
 
         # Add shortcut keys.
         def select_biggest_cluster_onchar_callback(iren, evt_name):
+            if self.verbose:
+                print("Pressed {} (shift={}), (ctrl={}), (alt={})".format(
+                    iren.event.key, iren.event.shift_key, iren.event.ctrl_key, iren.event.alt_key))
+
             if iren.event.key.lower() == "escape":
                 self.select(None)
 
-            elif iren.event.key.lower() == "tab" or iren.event.key.lower() == "iso_left_tab":
-                if iren.event.ctrl_key or iren.event.key.lower() == "iso_left_tab":
+            elif "tab" in iren.event.key.lower():
+                if iren.event.shift_key:
                     self.select_previous()
                 else:
                     self.select_next()
@@ -796,16 +835,22 @@ def main():
         prefix, _ = os.path.splitext(os.path.basename(args.tractograms[0]))
 
     # Load all tractograms
-    tractogram = nib.streamlines.Tractogram(affine_to_rasmm=np.eye(4))
+    tractogram = None
     for f in args.tractograms:
         tfile = nib.streamlines.load(f)
-        tractogram += tfile.tractogram
+        if tractogram is None:
+            tractogram = tfile.tractogram
+        else:
+            tractogram += tfile.tractogram
 
     anat = None
     if args.anat is not None:
         anat = nib.load(args.anat)
 
-    vizu = StreamlinesVizu(tractogram, anat=anat, prefix=prefix)
+    vizu = StreamlinesVizu(tractogram, anat=anat, prefix=prefix,
+                           screen_size=tuple(args.screen_size),
+                           default_clustering_threshold=args.default_clustering_threshold,
+                           verbose=args.verbose)
     vizu.initialize_scene()
     vizu.run()
 
